@@ -251,17 +251,23 @@ async def _init_case(case_name: str) -> None:
     case_paths = get_case_paths(case_name)
     os.makedirs(case_paths.case_dir, exist_ok=True)
 
-    ark_api_key = read_masked_input("火山方舟 API Key(输入内容以 • 显示): ").strip()
+    existing: dict[str, str] = {}
+    if os.path.exists(case_paths.config_path):
+        with open(case_paths.config_path, "r", encoding="utf-8") as fh:
+            existing = parse_env_text(fh.read())
+
+    # case 的 config.env 已预置方舟 Key 时直接复用，不再要求输入（init 只写本地配置，不改动任何已有 MA 资源）。
+    ark_api_key = (existing.get("ARK_API_KEY") or "").strip()
+    if ark_api_key:
+        print(f"复用 {case_paths.config_path} 中已有的方舟 API Key。")
+    else:
+        ark_api_key = read_masked_input("火山方舟 API Key(输入内容以 • 显示): ").strip()
     if not ark_api_key:
         raise RuntimeError("方舟 API Key 不能为空")
 
     print(f"接下来扫码创建飞书应用({case_name} 将复用该 Bot)…")
     feishu_app = await asyncio.get_event_loop().run_in_executor(None, register_feishu_app)
 
-    existing: dict[str, str] = {}
-    if os.path.exists(case_paths.config_path):
-        with open(case_paths.config_path, "r", encoding="utf-8") as fh:
-            existing = parse_env_text(fh.read())
     existing.update(
         {
             "ARK_API_KEY": ark_api_key,

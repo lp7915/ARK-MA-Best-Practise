@@ -20,6 +20,7 @@ from ..memory import MemoryManager
 from ..role import RoleInfo, RoleManager
 from ..store import ConversationKey, GatewayStore
 from ..timing import Stopwatch, time_block
+from ..tos_mounts import build_tos_resources
 
 Reply = Callable[[str, str], Awaitable[None]]
 DEFAULT_PROGRESS_DELAY_MS = 2_500
@@ -70,6 +71,9 @@ class Gateway:
         memory_manager: Optional[MemoryManager] = None,
         before_create_session: Optional[Callable[[], Awaitable[None]]] = None,
         loop: Optional[asyncio.AbstractEventLoop] = None,
+        extra_headers: Optional[dict] = None,
+        tos_mounts: tuple[tuple[str, str], ...] = (),
+        static_resources: tuple[dict, ...] = (),
     ) -> None:
         self._store = store
         self._ark = ark
@@ -85,6 +89,12 @@ class Gateway:
         self._before_create_session = before_create_session
         self._loop = loop
         self._queue = KeyedQueue()
+        # BYOK Direct 模式：按请求动态附加的模型鉴权 Header；未配置时为 None（原豆包模式）。
+        self._extra_headers = extra_headers
+        # 每个 Session 创建时固定挂载的 TOS 目录 (bucket, key)，沙箱内见 /mnt/session/storage/。
+        self._tos_resources = build_tos_resources(tos_mounts)
+        # 每个 Session 固定追加的其它 resources（如全员共享的 Memory Store）。
+        self._static_resources = list(static_resources)
 
     def accept(self, message: IncomingMessage) -> bool:
         """同步入口（可能被 WS 线程调用）：去重后把处理协程调度到事件循环。"""
@@ -177,7 +187,10 @@ class Gateway:
         try:
             # 不传 on_progress：避免把 tool_use/tool_result 转成进度消息刷屏。
             with time_block("gateway.run", session=session_id, first=first_message):
-                result = await self._ark.run(session_id, message.text, self._timeout_ms, system_message=system_message)
+                result = await self._ark.run(
+                session_id, message.text, self._timeout_ms, system_message=system_message,
+                extra_headers=self._extra_headers,
+            )
         finally:
             if progress_task is not None:
                 progress_task.cancel()
@@ -196,6 +209,7 @@ class Gateway:
         if self._memory:
             with time_block("gateway.build_session_resources", user=message.user_open_id):
                 resources = await self._memory.build_session_resources(message.user_open_id, role_info)
+        resources = [*resources, *self._static_resources, *self._tos_resources]
         with time_block("gateway.ark_create_session", user=message.user_open_id):
             return await self._ark.create_session(
                 self._agent_id,
