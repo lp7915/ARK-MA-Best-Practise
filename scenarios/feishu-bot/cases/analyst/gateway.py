@@ -18,7 +18,13 @@ def build_gateway(config: AnalystConfig, ark, sender, loop: asyncio.AbstractEven
         await loop.run_in_executor(None, sender.send_to_chat, chat_id, text)
 
     static_resources = (
-        ({"type": "memory_store", "memory_store_id": config.memory_store_id},)
+        (
+            {
+                "type": "memory_store",
+                "memory_store_id": config.memory_store_id,
+                "access": config.memory_access,
+            },
+        )
         if config.memory_store_id
         else ()
     )
@@ -35,4 +41,5 @@ def build_gateway(config: AnalystConfig, ark, sender, loop: asyncio.AbstractEven
         extra_headers=config.extra_headers,
         tos_mounts=config.tos_mounts,
         static_resources=static_resources,
+        output_tos=config.output_tos,
     )

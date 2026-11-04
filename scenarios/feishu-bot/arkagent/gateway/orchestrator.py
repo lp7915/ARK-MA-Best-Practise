@@ -74,6 +74,7 @@ class Gateway:
         extra_headers: Optional[dict] = None,
         tos_mounts: tuple[tuple[str, str], ...] = (),
         static_resources: tuple[dict, ...] = (),
+        output_tos: Optional[dict] = None,
     ) -> None:
         self._store = store
         self._ark = ark
@@ -95,6 +96,8 @@ class Gateway:
         self._tos_resources = build_tos_resources(tos_mounts)
         # 每个 Session 固定追加的其它 resources（如全员共享的 Memory Store）。
         self._static_resources = list(static_resources)
+        # 本 Gateway 创建的每个 Session 的产物存储（覆写 config.tos）；None 表示沿用 Environment 配置。
+        self._output_tos = output_tos
 
     def accept(self, message: IncomingMessage) -> bool:
         """同步入口（可能被 WS 线程调用）：去重后把处理协程调度到事件循环。"""
@@ -210,6 +213,7 @@ class Gateway:
             with time_block("gateway.build_session_resources", user=message.user_open_id):
                 resources = await self._memory.build_session_resources(message.user_open_id, role_info)
         resources = [*resources, *self._static_resources, *self._tos_resources]
+        extra: dict = {"output_tos": self._output_tos} if self._output_tos else {}
         with time_block("gateway.ark_create_session", user=message.user_open_id):
             return await self._ark.create_session(
                 self._agent_id,
@@ -217,6 +221,7 @@ class Gateway:
                 vault_ids=[self._vault_id] if self._vault_id else [],
                 env_overrides={"FEISHU_USER_OPEN_ID": message.user_open_id},  # 卡点 B
                 resources=resources,  # 卡点 D
+                **extra,
             )
 
     async def _handle_remember_command(self, message: IncomingMessage, text: str) -> None:

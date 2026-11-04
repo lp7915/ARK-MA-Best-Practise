@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
-from arkagent.tos_mounts import parse_tos_mounts
+from arkagent.tos_mounts import build_output_storage, parse_tos_mounts
 
 REQUIRED_KEYS = [
     "ARK_API_KEY",
@@ -26,8 +26,12 @@ class AnalystConfig:
     environment_id: str
     vault_id: str
     memory_store_id: str
-    # 所有用户、所有 Session 一致的 TOS 目录 (bucket, key)，沙箱内见 /mnt/session/storage/。
+    # Memory Store 的会话权限：read_only / read_write，由业务方决策，必须显式配置。
+    memory_access: str
+    # 所有用户、所有 Session 一致的 TOS 目录（只能一个），沙箱内见 /mnt/session/storage/。
     tos_mounts: tuple[tuple[str, str], ...]
+    # 产物存储（覆写 config.tos）：(bucket, prefix)；None 表示沿用 Environment 的配置。
+    output_tos: Optional[dict]
     authorized_open_ids: tuple[str, ...]
     session_timeout_ms: int
     # BYOK Direct：按请求以 X-User-Model-Header-{name} 附加；两者均为空则不附加。
@@ -46,6 +50,18 @@ def load_case_config(env: Optional[Mapping[str, str]] = None) -> AnalystConfig:
     missing = [k for k in REQUIRED_KEYS if not (environ.get(k) or "").strip()]
     if missing:
         raise RuntimeError(f"缺少环境变量:{', '.join(missing)}")
+    memory_store_id = (environ.get("ANALYST_MEMORY_STORE_ID") or "").strip()
+    memory_access = (environ.get("ANALYST_MEMORY_ACCESS") or "").strip()
+    if memory_store_id and memory_access not in ("read_only", "read_write"):
+        raise RuntimeError("ANALYST_MEMORY_ACCESS 必须显式配置为 read_only 或 read_write")
+    out_bucket = (environ.get("ANALYST_OUTPUT_TOS_BUCKET") or "").strip()
+    out_prefix = (environ.get("ANALYST_OUTPUT_TOS_PREFIX") or "").strip()
+    output_tos = None
+    if out_bucket or out_prefix:
+        try:
+            output_tos = build_output_storage(out_bucket, out_prefix)
+        except ValueError as error:
+            raise RuntimeError(f"ANALYST_OUTPUT_TOS_* 配置错误:{error}") from error
     header_name = (environ.get("BYOK_MODEL_AUTH_HEADER_NAME") or "").strip()
     header_value = (environ.get("BYOK_MODEL_AUTH_HEADER_VALUE") or "").strip()
     if bool(header_name) != bool(header_value):
@@ -65,8 +81,10 @@ def load_case_config(env: Optional[Mapping[str, str]] = None) -> AnalystConfig:
         agent_id=environ["ANALYST_AGENT_ID"].strip(),
         environment_id=environ["ANALYST_ENVIRONMENT_ID"].strip(),
         vault_id=(environ.get("ANALYST_VAULT_ID") or "").strip(),
-        memory_store_id=(environ.get("ANALYST_MEMORY_STORE_ID") or "").strip(),
+        memory_store_id=memory_store_id,
+        memory_access=memory_access,
         tos_mounts=tos_mounts,
+        output_tos=output_tos,
         authorized_open_ids=tuple(
             i.strip()
             for i in (environ.get("AUTHORIZED_OPEN_IDS") or "").replace(",", " ").split()

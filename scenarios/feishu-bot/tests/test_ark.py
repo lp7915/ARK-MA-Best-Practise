@@ -1014,3 +1014,19 @@ async def test_add_session_resource_url_encodes_session_id():
     await client.add_session_resource("sesn/1", {"type": "file", "file_id": "f-1"})
     await client.aclose()
     assert route.called
+
+
+@respx.mock
+async def test_create_session_overrides_output_tos_without_touching_environment():
+    respx.get(f"{BASE}/environments/env-1").mock(
+        return_value=httpx.Response(200, json={"id": "env-1", "config": {"type": "cloud", "env": {"K": "v"}}})
+    )
+    route = respx.post(f"{BASE}/sessions").mock(return_value=httpx.Response(200, json={"id": "sesn-4"}))
+    client = _client()
+    await client.create_session("agent-1", "env-1", output_tos={"bucket": "b", "prefix": "out/"})
+    await client.aclose()
+    import json
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["environment"]["type"] == "environment_with_overrides"
+    assert sent["environment"]["config"]["tos"] == {"bucket": "b", "prefix": "out/"}
+    assert sent["environment"]["config"]["env"] == {"K": "v"}

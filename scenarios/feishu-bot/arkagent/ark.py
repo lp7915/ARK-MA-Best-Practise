@@ -508,6 +508,7 @@ class ArkClient:
         env_overrides: Optional[dict[str, str]] = None,
         resources: Optional[list[dict]] = None,
         title: str = "",
+        output_tos: Optional[dict] = None,
     ) -> str:
         """一次成型：卡点 B（env_overrides 注入 OpenID）+ A（vault_ids）+ D（resources 挂 Memory Store）。"""
         vault_ids = vault_ids or []
@@ -517,15 +518,20 @@ class ArkClient:
         body: dict = {"agent": agent_id}
         if title:
             body["title"] = title
-        if env_overrides:
-            # 卡点 B：会话级环境变量透传（environment_with_overrides）。
+        if env_overrides or output_tos:
+            # 卡点 B：会话级环境变量透传；output_tos：本会话产物写入指定 TOS
+            # （均走 environment_with_overrides，不修改可复用的 Environment）。
             with time_block("ark.get_environment_config", env=environment_id):
                 environment_config = await self.get_environment_config(environment_id)
-            merged_env = {**(environment_config.get("env") or {}), **env_overrides}
+            override_config = dict(environment_config)
+            if env_overrides:
+                override_config["env"] = {**(environment_config.get("env") or {}), **env_overrides}
+            if output_tos:
+                override_config["tos"] = output_tos
             body["environment"] = {
                 "id": environment_id,
                 "type": "environment_with_overrides",
-                "config": {**environment_config, "env": merged_env},
+                "config": override_config,
             }
         else:
             body["environment_id"] = environment_id

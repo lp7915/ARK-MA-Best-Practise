@@ -43,8 +43,9 @@ class FakeArk:
         self.last_extra_headers = "unset"
         self._run_result = run_result or RunResult(terminal="idle", messages=["回复"])
 
-    async def create_session(self, agent_id, environment_id, vault_ids=None, env_overrides=None, resources=None):
+    async def create_session(self, agent_id, environment_id, vault_ids=None, env_overrides=None, resources=None, output_tos=None):
         self.creates += 1
+        self.last_output_tos = output_tos
         self.last_env = env_overrides
         self.last_vaults = vault_ids
         self.last_resources = resources

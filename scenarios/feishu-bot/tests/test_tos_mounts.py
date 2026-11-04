@@ -2,15 +2,15 @@ import asyncio
 
 import pytest
 
-from arkagent.tos_mounts import MAX_SESSION_RESOURCES, build_tos_resources, parse_tos_mounts
+from arkagent.tos_mounts import build_output_storage, build_tos_resources, parse_tos_mounts
 from arkagent.gateway.orchestrator import Gateway
 from arkagent.store import GatewayStore
 from test_gateway import FakeArk, message
 
 
-def test_parse_accepts_commas_newlines_and_dedupes():
-    raw = "tos://b1/a/, tos://b2/x/y/\ntos://b1/a/"
-    assert parse_tos_mounts(raw) == (("b1", "a/"), ("b2", "x/y/"))
+def test_parse_single_mount_and_empty():
+    assert parse_tos_mounts("tos://b1/a/") == (("b1", "a/"),)
+    assert parse_tos_mounts("tos://b1/a/\ntos://b1/a/") == (("b1", "a/"),)  # 完全相同视为一个
     assert parse_tos_mounts("") == ()
 
 
@@ -20,10 +20,16 @@ def test_parse_rejects_invalid(raw):
         parse_tos_mounts(raw)
 
 
-def test_parse_rejects_over_limit():
-    raw = ",".join(f"tos://b/d{i}/" for i in range(MAX_SESSION_RESOURCES + 1))
-    with pytest.raises(ValueError, match="不能超过"):
-        parse_tos_mounts(raw)
+def test_parse_rejects_more_than_one_mount():
+    with pytest.raises(ValueError, match="只能配置 1 个"):
+        parse_tos_mounts("tos://b1/a/,tos://b1/b/")
+
+
+def test_output_storage_requires_bucket_prefix_and_trailing_slash():
+    assert build_output_storage("b", "x/") == {"bucket": "b", "prefix": "x/"}
+    for bucket, prefix in (("", "x/"), ("b", ""), ("b", "x")):
+        with pytest.raises(ValueError):
+            build_output_storage(bucket, prefix)
 
 
 def test_build_resources_shape():
@@ -46,3 +52,19 @@ async def test_gateway_mounts_tos_on_create_session():
     gw.accept(message())
     await asyncio.sleep(0.05)
     assert ark.last_resources == [{"type": "tos", "tos_bucket": "b1", "tos_key": "data/"}]
+
+
+async def test_gateway_passes_output_tos_to_create_session():
+    ark = FakeArk()
+
+    async def reply(chat_id, text):
+        pass
+
+    gw = Gateway(
+        GatewayStore(":memory:"), ark, reply,
+        agent_id="a", environment_id="e", vault_id="v", timeout_ms=5_000,
+        output_tos={"bucket": "b", "prefix": "out/"},
+    )
+    gw.accept(message())
+    await asyncio.sleep(0.05)
+    assert ark.last_output_tos == {"bucket": "b", "prefix": "out/"}
