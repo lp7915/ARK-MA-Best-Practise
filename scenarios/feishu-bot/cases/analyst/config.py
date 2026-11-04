@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
+from arkagent.memory_mounts import parse_memory_stores
 from arkagent.tos_mounts import build_output_storage, parse_tos_mounts
 
 REQUIRED_KEYS = [
@@ -25,10 +26,9 @@ class AnalystConfig:
     agent_id: str
     environment_id: str
     vault_id: str
-    memory_store_id: str
-    # Memory Store 的会话权限：read_only / read_write，由业务方决策，必须显式配置。
-    memory_access: str
-    # 所有用户、所有 Session 一致的 TOS 目录（只能一个），沙箱内见 /mnt/session/storage/。
+    # 挂载的 Memory Store：(store_id, access)，逐个配置，未写权限的默认 read_only。
+    memory_stores: tuple[tuple[str, str], ...]
+    # 所有用户、所有 Session 一致的 TOS 目录，沙箱内见 /mnt/session/storage/。
     tos_mounts: tuple[tuple[str, str], ...]
     # 产物存储（覆写 config.tos）：(bucket, prefix)；None 表示沿用 Environment 的配置。
     output_tos: Optional[dict]
@@ -50,10 +50,10 @@ def load_case_config(env: Optional[Mapping[str, str]] = None) -> AnalystConfig:
     missing = [k for k in REQUIRED_KEYS if not (environ.get(k) or "").strip()]
     if missing:
         raise RuntimeError(f"缺少环境变量:{', '.join(missing)}")
-    memory_store_id = (environ.get("ANALYST_MEMORY_STORE_ID") or "").strip()
-    memory_access = (environ.get("ANALYST_MEMORY_ACCESS") or "").strip()
-    if memory_store_id and memory_access not in ("read_only", "read_write"):
-        raise RuntimeError("ANALYST_MEMORY_ACCESS 必须显式配置为 read_only 或 read_write")
+    try:
+        memory_stores = parse_memory_stores(environ.get("ANALYST_MEMORY_STORES") or "")
+    except ValueError as error:
+        raise RuntimeError(f"ANALYST_MEMORY_STORES 配置错误:{error}") from error
     out_bucket = (environ.get("ANALYST_OUTPUT_TOS_BUCKET") or "").strip()
     out_prefix = (environ.get("ANALYST_OUTPUT_TOS_PREFIX") or "").strip()
     output_tos = None
@@ -81,8 +81,7 @@ def load_case_config(env: Optional[Mapping[str, str]] = None) -> AnalystConfig:
         agent_id=environ["ANALYST_AGENT_ID"].strip(),
         environment_id=environ["ANALYST_ENVIRONMENT_ID"].strip(),
         vault_id=(environ.get("ANALYST_VAULT_ID") or "").strip(),
-        memory_store_id=memory_store_id,
-        memory_access=memory_access,
+        memory_stores=memory_stores,
         tos_mounts=tos_mounts,
         output_tos=output_tos,
         authorized_open_ids=tuple(

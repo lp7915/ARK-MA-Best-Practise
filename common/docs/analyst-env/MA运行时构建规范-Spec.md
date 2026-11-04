@@ -2,6 +2,8 @@
 
 > 版本：v1.0 · 适用对象：在方舟 Managed Agents（MA）上构建、交付、升级业务运行时的研发
 > 配套文档：《能力需求收集表》（业务方填写）。收集表的每一项都能在本规范的清单里找到唯一位置，见[附录：收集表与清单的对应](#附录收集表与清单的对应)。
+>
+> 本规范分两层：**资源包层**（第 2 节）规定稳定资源怎样组织、信息归谁；**MA 资源层**（第 3 至 6 节）规定这些资源怎样落到 MA 并被升级。
 
 ---
 
@@ -25,48 +27,160 @@
 | P4 | 密钥与配置分离 | 清单与仓库只出现凭证的名称、类型、提供人，不出现值 |
 | P5 | 只读优先 | 初始化与启动阶段不修改已存在的资源，写入只发生在评审后的 `apply` |
 | P6 | 平台漂移显式化 | 清单写明依赖的平台版本，平台升级时靠比对发现差异，不靠故障发现 |
+| P7 | 信息唯一归属 | 每类信息只有一个事实源（见 2.2），其他位置只引用、不复制 |
+| P8 | 稳定资源与运行实例分离 | 资源包只保存可复用的稳定资源；会话 ID、任务 ID 等运行实例信息不进资源包 |
 
 ---
 
-## 2. 交付物：按 MA 资源组织
+## 2. 交付物：资源包
 
-每个业务运行时一个目录，目录名即逻辑名 `<logical_name>`（小写字母、数字、点、下划线、连字符）。目录与 MA 的 6 类资源一一对应：
+每个业务运行时交付一个**资源包**，目录名即逻辑名 `<logical_name>`（小写字母、数字、点、下划线、连字符）。资源包只保存**可跨会话复用的稳定资源**，不保存会话、任务等运行实例信息。
+
+### 2.1 目录结构
 
 ```text
 ma-build/<logical_name>/
-├── manifest.yaml             # 主清单：资源名、平台版本、业务版本、负责人（第 3 节）
-├── CHANGELOG.md              # 变更记录（第 6 节）
-├── README.md                 # 一页纸：做什么、谁负责、怎么 plan / apply / 回滚
+├── README.md                    # 一页纸：做什么、谁负责、怎么 plan / apply / 回滚
+├── registry/                    # 登记与版本：资源包的入口
+│   ├── manifest.yaml            #   主清单：资源名、平台版本、业务版本、负责人（第 3 节）
+│   ├── resources.lock.json      #   资源锁定清单：当前版本各资源的 ID 与版本、内容指纹
+│   ├── version_mapping.md       #   人可读的版本映射（Skill、Agent、Environment 各自当前版本）
+│   └── CHANGELOG.md             #   变更记录（第 6 节）
 │
-├── agent/                    # ① Agent
-│   ├── agent.json            #    model / tools / mcp_servers / skills / context_management
-│   └── system.md             #    系统提示词正文
-├── skills/                   # ② Skill：每个 Skill 一个目录（第 5 节）
+├── identity/                    # ① Agent：身份与行为
+│   ├── agent.json               #   model / tools / mcp_servers / skills / context_management
+│   ├── system.md                #   系统提示词正文
+│   └── subagents/               #   子 Agent 定义（有则放，无则省略）
+│
+├── knowledge/                   # 业务知识：标准、口径、模板、案例、术语（可被 Skill 和提示词引用）
+│   ├── standards/               #   生产与验收口径
+│   ├── templates/               #   业务内容模板
+│   ├── examples/                #   可复用案例（标准、边界、错误、回归）
+│   └── glossary.md              #   术语表
+│
+├── tools/                       # 外部能力契约：只写接口、用途、所需凭证类型，不写凭证值
+│   ├── _overview.md
+│   └── <tool_name>.md
+│
+├── skills/                      # ② Skill：每个 Skill 一个目录（第 5 节）
 │   └── <skill_name>/
-├── environment/              # ③ Environment
-│   ├── environment.json      #    networking / packages / env（仅非敏感）
-│   └── setup.sh              #    初始化脚本（可选）
-├── vault/                    # ④ Vault / Credential
-│   └── credentials.spec.yaml #    只写名称、类型、用途、提供人，不写值
-├── memory/                   # ⑤ Memory Store
-│   ├── memory-store.json
-│   └── <路径>/*.md           #    一条记忆一个文件，目录结构即记忆路径
-├── session/                  # ⑥ Session 创建参数
-│   └── session.yaml          #    resources、固定的 Agent 版本、产物存储
 │
-├── channel/                  # MA 之外：接入渠道与网关
-│   ├── channels.yaml         #    渠道、可用范围、飞书权限与事件订阅登记
-│   └── gateway.env.example   #    网关配置样板（无真实值）
+├── environment/                 # ③ Environment
+│   ├── environment.json         #   networking / packages / env（仅非敏感）
+│   └── setup.sh                 #   初始化脚本（可选）
+│
+├── vault/                       # ④ Vault / Credential
+│   └── credentials.spec.yaml    #   只写名称、类型、用途、提供人，不写值
+│
+├── memory/                      # ⑤ Memory Store
+│   ├── memory-store.json
+│   └── <路径>/*.md              #   一条记忆一个文件，目录结构即记忆路径
+│
+├── session/                     # ⑥ Session 创建参数
+│   └── session.yaml             #   资源挂载与权限、固定的 Agent 版本、产物存储
+│
+├── io/                          # 输入输出契约
+│   └── contracts/               #   机器可读的输入、产物结构定义
+│
+├── channel/                     # MA 之外：接入渠道与网关
+│   ├── channels.yaml            #   渠道、可用范围、飞书权限与事件订阅登记
+│   └── gateway.env.example      #   网关配置样板（无真实值）
+│
 └── verification/
-    ├── smoke.md              # 冒烟用例
-    └── acceptance.md         # 业务验收用例
+    ├── smoke.md                 # 冒烟用例
+    └── acceptance.md            # 业务验收用例
 ```
+
+不适用的目录可以省略，但 `registry/`、`identity/`、`environment/`、`session/`、`verification/` 必须存在。
 
 **判定规则：** 评审时若无法仅凭这个目录回答"某项需求在哪类资源的哪个字段里"，视为交付不合格。
 
+### 2.2 信息唯一归属
+
+每类信息只有一个事实源，其他位置只引用、不复制：
+
+| 信息类型 | 唯一事实源 |
+|---|---|
+| Agent 的角色、行为边界、提示词 | `identity/` |
+| 业务口径、标准、模板、案例、术语 | `knowledge/` |
+| 外部能力的接口与所需凭证类型 | `tools/` |
+| 可执行的封装能力（说明、脚本、参考资料） | `skills/<name>/` |
+| 沙箱依赖、网络、非敏感环境变量 | `environment/` |
+| 凭证的名称、类型、用途、提供人 | `vault/credentials.spec.yaml` |
+| 凭证的真实值 | 外部密钥存储（Vault 或密钥管理系统），**不进入资源包** |
+| 跨会话共享的长期知识 | `memory/` |
+| 会话创建时的挂载、权限、产物存储 | `session/session.yaml` |
+| 输入、产物的结构定义 | `io/contracts/` |
+| 当前版本各资源的 ID、版本、指纹 | `registry/resources.lock.json` |
+| 变更历史 | `registry/CHANGELOG.md` |
+
+边界规则：
+
+- `knowledge/` 保存可复用的稳定知识；某次任务的原始材料、聊天记录、失败文件不进入资源包。
+- `knowledge/templates/` 保存业务内容模板；可执行的提示词和脚本随具体 Skill 保存在 `skills/<name>/`。
+- `registry/` 只保存资源登记与版本引用，不保存会话 ID、任务 ID、工具调用产生的实例 ID。
+- 提示词引用知识时，引用 `knowledge/` 中的文件，不在 `system.md` 里复制一份。
+
+### 2.3 凭证引用
+
+- `tools/<name>.md` 与 `environment/` 只声明**所需凭证的类型**，不保存凭证值。
+- `vault/credentials.spec.yaml` 为每个凭证登记 `name`、`system`、`type`、`purpose`、`owner`，以及它在外部密钥存储中的引用标识 `secret_ref`。
+- 凭证值只在运行时由 Vault 或网关解析，不得写入资源包、会话事件、产物、日志或回执。
+
+### 2.4 资源锁定清单 `resources.lock.json`
+
+锁定清单记录**当前发布版本**各资源的确切身份，是升级、回滚、`plan` 比对的依据：
+
+```json
+{
+  "logical_name": "<logical_name>",
+  "version": "1.0.0",
+  "ma_runtime": { "docs_snapshot": "YYYY-MM-DD", "toolset_type": "agent_toolset_20260916" },
+  "agent":       { "id": "agent-…", "version": 3, "system_sha256": "…", "model_fp": "…" },
+  "environment": { "id": "env-…", "config_sha256": "…" },
+  "vault":       { "id": "vlt-…", "credentials": ["<name>"] },
+  "memory":      [ { "id": "memstore-…", "access": "read_only", "entries_sha256": "…" } ],
+  "skills":      [ { "name": "<skill_name>", "skill_id": "skill-…", "fingerprint": "…" } ]
+}
+```
+
+- 锁定清单由 `apply` 生成并随发布提交，**不得手工编辑**。
+- 每次发布，锁定清单与 `CHANGELOG.md` 同步更新；`plan` 比对的是清单与锁定清单，再与平台现状三方对照。
+- 资源 ID 允许出现在锁定清单里，不允许出现在其他文件里。
+
+### 2.5 会话固定的版本快照
+
+灰度、复现问题或事后审计时，需要知道**某个会话到底按什么版本运行**。创建会话时必须固定 Agent 版本，并把本次采用的资源版本记录下来：
+
+```text
+会话 = Agent 版本 + Environment + Vault + 记忆库及权限 + TOS 挂载 + 产物存储 + 模型鉴权 Header 名称
+```
+
+- 会话创建后，后续资源变更不影响既有会话对原版本的引用。
+- 该记录保存在网关侧（会话映射），不写入资源包，不含凭证值。
+
+### 2.6 产物与过程信息
+
+- 沙箱里 `/workspace` 与 `/tmp` 是**过程信息**：可重新计算的加工数据、分析草稿、调试输出，不是交付物，会话结束即可丢弃。
+- `/mnt/session/outputs/` 是**正式产物**：需要保留、复用、送检或交付的结果必须写到这里。
+- 每个正式产物应能回答：它由哪次会话产生、依据什么输入、用的哪个版本的资源（见 2.5）。
+- 产物是交付的事实源；对外导出、打包的版本由产物派生，修改应回到产物重新生成，不直接编辑导出件。
+
+### 2.7 反馈与经验沉淀
+
+交付后的确认、修改意见、效果反馈，按影响范围处理：
+
+| 影响范围 | 处理 |
+|---|---|
+| 只影响本次会话 | 保留在该会话，不沉淀 |
+| 对后续任务有价值的稳定结论 | 经整理后写入 `memory/`（须符合 4.5 的权限与审核要求） |
+| 可跨场景复用的方法、标准、案例 | 作为 `knowledge/` 的更新候选，走第 6 节变更流程 |
+
+原始聊天、日志、失败文件和含业务敏感信息的材料不直接进入 `memory/` 或 `knowledge/`。
+
 ---
 
-## 3. 主清单 `manifest.yaml`
+## 3. 主清单 `registry/manifest.yaml`
 
 ```yaml
 spec_version: 1                  # 本规范版本，不是业务版本
@@ -82,7 +196,7 @@ ma_runtime:                      # 依赖的平台版本，升级时据此比对
   region: cn-beijing
 
 resources:                       # 顶层资源：按确定名称加 metadata 定位
-  agent:       { name: <logical_name>-agent,  file: agent/agent.json }
+  agent:       { name: <logical_name>-agent,  file: identity/agent.json }
   environment: { name: <logical_name>-env,    file: environment/environment.json }
   vault:       { name: <logical_name>-vault,  spec: vault/credentials.spec.yaml }
   memory:      { name: <logical_name>-memory, file: memory/memory-store.json }
@@ -99,17 +213,17 @@ resources:                       # 顶层资源：按确定名称加 metadata �
 
 每节结构：**要收集什么 → 清单落点 → 规则**。"要收集什么"与收集表同一章节一一对应。
 
-### 4.1 Agent（`agent/`）
+### 4.1 Agent（`identity/`）
 
 | 要收集的信息 | 清单落点 | 规则 |
 |---|---|---|
-| 名称、描述 | `agent.json: name, description` | 名称确定、唯一 |
-| 模型 | `agent.json: model.*` | 见下方模型表 |
-| 长对话压缩阈值 | `agent.json: context_management` | 在 Session 创建时固定，修改只对新建的 Session 生效 |
-| 系统提示词 | `system.md` | 纯文本；摘要哈希写入清单；不含密钥 |
-| Skill 列表 | `agent.json: skills[]` | 整体替换语义，必须写完整数组；单个 Agent 最多 50 个 |
-| 外部服务（MCP） | `agent.json: mcp_servers[]` 与 `tools[] mcp_toolset` | 整体替换语义；MCP 的鉴权凭证走 Vault（4.4） |
-| 工具与权限 | `agent.json: tools[]` | 工具集类型以 `ma_runtime.toolset_type` 为准；逐项登记 `permission_policy` |
+| 名称、描述 | `identity/agent.json: name, description` | 名称确定、唯一 |
+| 模型 | `identity/agent.json: model.*` | 见下方模型表 |
+| 长对话压缩阈值 | `identity/agent.json: context_management` | 在 Session 创建时固定，修改只对新建的 Session 生效 |
+| 系统提示词 | `identity/system.md` | 纯文本；摘要哈希写入锁定清单；不含密钥；引用业务口径时引用 `knowledge/`，不复制 |
+| Skill 列表 | `identity/agent.json: skills[]` | 整体替换语义，必须写完整数组；单个 Agent 最多 50 个 |
+| 外部服务（MCP） | `identity/agent.json: mcp_servers[]` 与 `tools[] mcp_toolset` | 整体替换语义；MCP 的鉴权凭证走 Vault（4.4） |
+| 工具与权限 | `identity/agent.json: tools[]` | 工具集类型以 `ma_runtime.toolset_type` 为准；逐项登记 `permission_policy` |
 
 **模型字段：**
 
@@ -169,12 +283,12 @@ resources:                       # 顶层资源：按确定名称加 metadata �
 | 要收集的信息 | 清单落点 | 规则 |
 |---|---|---|
 | 名称 | `memory-store.json: name` | |
-| 机器人能否修改记忆（业务决策） | `session.yaml: resources[].access` | `read_only` 或 `read_write`；选 `read_write` 须同时收集「允许写入的内容类型」与「审核人、审核频率」，写入清单备注 |
+| 每个记忆库的读写权限（业务决策） | `session.yaml: resources[].access` | **逐个记忆库**配置，`read_only` 或 `read_write`，未配置的默认 `read_only`；选 `read_write` 须同时收集「允许写入的内容类型」与「审核人、审核频率」，写入清单备注 |
 | 记忆条目 | `memory/<路径>.md` | 一条一个文件；路径即记忆路径；单条不超过 100 KiB；单个 Store 不超过 2,000 条 |
 
 规则：
 
-- **`access` 由业务方决策，必须在清单里显式写出，不得依赖平台默认值。** 平台默认是 `read_write`。
+- **`access` 按记忆库逐个配置，由业务方决策；未配置的记忆库一律按 `read_only`。** 平台自身的默认值是 `read_write`，因此挂载时必须**显式下发** `access`，不得省略。
 - `read_only`：Agent 只能浏览、读取、搜索。`read_write`：Agent 还能创建、更新、删除、移动记忆，修改会保存并影响后续所有 Session。
 - 共享规范、知识库、术语表类的 Store 使用 `read_only`。选 `read_write` 的，必须写明原因与审查方式，因为 Agent 处理的不可信内容（用户输入、网页、第三方工具返回）可能被写入记忆，并在后续 Session 中被当作可信信息读取。
 - 单个 Session 最多挂载 10 个 Memory Store。
@@ -200,7 +314,7 @@ resources:                       # 顶层资源：按确定名称加 metadata �
 
 **TOS 挂载规则：**
 
-- 每个 Session 只挂载**一个** TOS 目录。
+- 一个 Session 可挂载多个 TOS 目录，完全相同的目录不能重复。
 - `tos_key` 必须是以 `/` 结尾的目录，且该前缀下已存在对象；前缀不存在则创建 Session 失败。
 - TOS Bucket 必须与 MA 服务同地域，并已在方舟项目中完成授权。
 - 预检按目录逐个进行，任一目录不可用，整个创建请求失败。
@@ -266,19 +380,19 @@ resources:                       # 顶层资源：按确定名称加 metadata �
 ### 6.2 变更流程
 
 1. **变更说明**：PR 中写明类别（A 到 I）、涉及的清单位置、预期影响面。
-2. **`plan`（只读）**：产出清单与平台现状的差异；差异必须与变更说明一致，多出的差异视为漂移，先查明。
+2. **`plan`（只读）**：把清单、锁定清单、平台现状三方对照，产出差异；差异必须与变更说明一致，多出的差异视为漂移，先查明。
 3. **评审**：至少一名非作者；涉及密钥、网络、外发、产物存储的变更须安全评审。
 4. **`apply` 到研发环境**，不得直接修改正式环境。
 5. **冒烟**：执行 `verification/smoke.md`，保留真实输出。
 6. **灰度**：新建 Session 固定新版本验证，再升级存量的 `idle` Session；`running` 的 Session 记入待升级清单，不强行中断。
-7. **回写**：更新清单、CHANGELOG、Skill 版本对照表。
+7. **回写**：`apply` 重新生成锁定清单，并更新清单、CHANGELOG、`version_mapping.md`。
 
-**回滚：** Agent 回退到上一版本；Skill 把 `skills[]` 改回旧指纹；Environment 用上一版清单重新 `apply`。回滚同样走灰度。
+**回滚：** 以上一发布版本的锁定清单为目标：Agent 回退到其记录的版本；Skill 把 `skills[]` 改回其记录的指纹；Environment 用上一版清单重新 `apply`。回滚同样走灰度。
 
 ### 6.3 版本与指纹
 
 - 业务版本 `manifest.version` 采用语义化版本：A、B、C 类破坏性变更升主版本；新增能力升次版本；仅文案、记忆、修复升修订版本。
-- 指纹：Agent 的 `metadata.model_fp`、Skill 的 `@<指纹>`、`system.md` 的摘要哈希，均写入清单，`plan` 时比对。
+- 指纹：Agent 的 `metadata.model_fp`、Skill 的 `@<指纹>`、`system.md` 的摘要哈希，均写入锁定清单，`plan` 时比对。
 - CHANGELOG 条目格式：
 
 ```markdown
@@ -298,7 +412,7 @@ resources:                       # 顶层资源：按确定名称加 metadata �
 2. **比对清单**：核对 `ma_runtime` 与各资源文件里出现的类型字符串、字段名、接口路径、Header，是否仍出现在最新文档中：
    ```bash
    grep -o 'agent_toolset_[0-9]*' common/docs/火山方舟_ManagedAgents_docs.md | sort -u
-   grep -o 'agent_toolset_[0-9]*' ma-build/<name>/agent/agent.json | sort -u
+   grep -o 'agent_toolset_[0-9]*' ma-build/<name>/identity/agent.json | sort -u
    ```
 3. **分级处理：**
    - **兼容**：与最新文档一致，只更新 `docs_snapshot`。
@@ -315,7 +429,7 @@ resources:                       # 顶层资源：按确定名称加 metadata �
 2. Environment 的 `env` 不得存放密钥，密钥走 Vault 或请求级注入。
 3. 初始化与启动阶段只读：不得更新、删除、重建已存在的 Agent、Environment、Vault、Memory Store。写入只发生在评审后的 `apply`。
 4. 不得对生产资源先删后建；需要重建时，先归档、再新建、再切换。
-5. Memory Store 的 `access` 必须显式声明，不得依赖提示词约束读写权限。
+5. Memory Store 的 `access` 按记忆库逐个声明、默认只读，且挂载时显式下发，不得依赖提示词约束读写权限。
 6. 测试资源必须使用独立的测试逻辑名并登记台账，仅按台账中的精确 ID 清理；正式资源不进入清理范围。
 7. 业务数据进入模型的范围必须与业务方确认的结论一致。
 8. 文档与脚本里的启动命令必须写明解释器与环境，如 `<python> -m <模块> ...`，不得依赖全局安装的同名命令，避免被其他版本的同名命令抢占。
@@ -345,12 +459,13 @@ resources:                       # 顶层资源：按确定名称加 metadata �
 
 **合入前检查单：**
 
-- [ ] 目录结构符合第 2 节，清单字段齐全
+- [ ] 目录结构符合 2.1，清单字段齐全；`registry/resources.lock.json` 已随发布更新
+- [ ] 信息只出现在 2.2 规定的唯一事实源，无重复副本；资源包内无会话 ID、任务 ID 等运行实例信息
 - [ ] 每类资源的信息都落在第 4 节规定的位置
 - [ ] 变更类别（A 到 I）已标注，影响面已写明
 - [ ] 无密钥明文（含 Environment `env`、日志、截图）
 - [ ] `packages` 已锁定版本下限；`setup_script` 带校验和
-- [ ] Memory 的 `access` 已显式声明
+- [ ] 每个记忆库的 `access` 已逐个声明（未声明的为只读），挂载时已显式下发
 - [ ] 交付物需要长期保存的，已配置产物存储
 - [ ] `ma_runtime` 已更新到最近一次文档同步，漂移项已处理或登记
 - [ ] `plan` 报告已附；`apply` 仅在研发环境执行
@@ -364,13 +479,14 @@ resources:                       # 顶层资源：按确定名称加 metadata �
 
 | 收集表章节 | 清单位置 | 规范章节 |
 |---|---|---|
-| 基本信息 | `manifest.yaml: owner`、`README.md` | 3 |
-| Agent（模型、提示词、Skill、MCP、工具） | `agent/`、`skills/` | 4.1、4.2、5 |
+| 基本信息 | `registry/manifest.yaml: owner`、`README.md` | 3 |
+| Agent（模型、提示词、Skill、MCP、工具） | `identity/`、`skills/`、`tools/` | 4.1、4.2、5 |
 | Environment（网络、依赖、脚本、环境变量） | `environment/` | 4.3 |
 | Vault（外部系统凭证） | `vault/credentials.spec.yaml` | 4.4 |
 | Memory Store（读写权限、条目） | `memory/`、`session/session.yaml: access` | 4.5 |
 | Session 创建参数 | `session/session.yaml` | 4.6 |
 | 接入渠道 | `channel/` | 4.7 |
+| 业务口径、标准、模板、案例（如有） | `knowledge/`、`io/contracts/` | 2.1、2.2 |
 | 补充 | 评审时归类到上述任一资源 | — |
 
 TOS 挂载目录与产物存储由研发按 4.6 维护，不向业务方收集。

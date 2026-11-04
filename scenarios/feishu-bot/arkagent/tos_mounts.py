@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from typing import Iterable
 
-# 规范约定：每个 Session 只挂载一个 TOS 目录（控制台同样只允许一个）。
-MAX_TOS_MOUNTS = 1
 _SCHEME = "tos://"
 
 
@@ -16,6 +14,7 @@ def parse_tos_mounts(raw: str) -> tuple[tuple[str, str], ...]:
     """把逗号/换行分隔的 ``tos://bucket/dir/`` 解析为 ``((bucket, key), ...)``，去重并保序。
 
     ``tos_key`` 必须是以 ``/`` 结尾的目录，不合法直接抛 ValueError，避免带病创建 Session。
+    数量不在本地限制：平台对重复目录、不存在的前缀会在创建 Session 时直接报错。
     """
     mounts: list[tuple[str, str]] = []
     for item in raw.replace("\n", ",").split(","):
@@ -31,8 +30,6 @@ def parse_tos_mounts(raw: str) -> tuple[tuple[str, str], ...]:
             raise ValueError(f"TOS 挂载项必须是以 / 结尾的目录：{item!r}")
         if (bucket, key) not in mounts:
             mounts.append((bucket, key))
-    if len(mounts) > MAX_TOS_MOUNTS:
-        raise ValueError(f"TOS 挂载目录只能配置 {MAX_TOS_MOUNTS} 个，当前 {len(mounts)}")
     return tuple(mounts)
 
 

@@ -10,7 +10,7 @@ BASE = {
     "ARK_API_KEY": "k", "FEISHU_APP_ID": "a", "FEISHU_APP_SECRET": "s",
     "ANALYST_AGENT_ID": "agent-1", "ANALYST_ENVIRONMENT_ID": "env-1",
 }
-MEM = {"ANALYST_MEMORY_STORE_ID": "mem-1", "ANALYST_MEMORY_ACCESS": "read_only"}
+MEM = {"ANALYST_MEMORY_STORES": "mem-1:read_only,mem-2:read_write,mem-3"}
 
 
 def test_config_defaults_and_tos():
@@ -29,12 +29,12 @@ def test_config_byok_header_and_pairing():
         load_case_config({**BASE, "BYOK_MODEL_AUTH_HEADER_NAME": "Authorization"})
 
 
-def test_memory_access_must_be_explicit_when_memory_configured():
-    with pytest.raises(RuntimeError, match="ANALYST_MEMORY_ACCESS"):
-        load_case_config({**BASE, "ANALYST_MEMORY_STORE_ID": "mem-1"})
-    with pytest.raises(RuntimeError, match="ANALYST_MEMORY_ACCESS"):
-        load_case_config({**BASE, "ANALYST_MEMORY_STORE_ID": "mem-1", "ANALYST_MEMORY_ACCESS": "rw"})
-    assert load_case_config({**BASE}).memory_access == ""  # 未挂载 Memory 时无需配置
+def test_memory_stores_are_configured_per_store_and_default_read_only():
+    cfg = load_case_config({**BASE, **MEM})
+    assert cfg.memory_stores == (("mem-1", "read_only"), ("mem-2", "read_write"), ("mem-3", "read_only"))
+    assert load_case_config({**BASE}).memory_stores == ()
+    with pytest.raises(RuntimeError, match="ANALYST_MEMORY_STORES"):
+        load_case_config({**BASE, "ANALYST_MEMORY_STORES": "mem-1:rw"})
 
 
 def test_output_tos_requires_both_fields():
@@ -71,6 +71,8 @@ async def test_gateway_mounts_memory_tos_and_sends_byok_header(tmp_path, monkeyp
     await asyncio.sleep(0.1)
     assert ark.last_resources == [
         {"type": "memory_store", "memory_store_id": "mem-1", "access": "read_only"},
+        {"type": "memory_store", "memory_store_id": "mem-2", "access": "read_write"},
+        {"type": "memory_store", "memory_store_id": "mem-3", "access": "read_only"},
         {"type": "tos", "tos_bucket": "b", "tos_key": "a/"},
     ]
     assert ark.last_output_tos == {"bucket": "ob", "prefix": "out/"}

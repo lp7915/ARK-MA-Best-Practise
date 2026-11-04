@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 
 from arkagent.gateway.orchestrator import Gateway
+from arkagent.memory_mounts import build_memory_resources
 from arkagent.paths import get_case_paths
 from arkagent.store import GatewayStore
 
@@ -17,17 +18,7 @@ def build_gateway(config: AnalystConfig, ark, sender, loop: asyncio.AbstractEven
     async def reply(chat_id: str, text: str) -> None:
         await loop.run_in_executor(None, sender.send_to_chat, chat_id, text)
 
-    static_resources = (
-        (
-            {
-                "type": "memory_store",
-                "memory_store_id": config.memory_store_id,
-                "access": config.memory_access,
-            },
-        )
-        if config.memory_store_id
-        else ()
-    )
+    static_resources = tuple(build_memory_resources(config.memory_stores))
     return Gateway(
         store,
         ark,

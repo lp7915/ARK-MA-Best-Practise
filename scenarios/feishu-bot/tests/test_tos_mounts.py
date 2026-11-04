@@ -20,9 +20,9 @@ def test_parse_rejects_invalid(raw):
         parse_tos_mounts(raw)
 
 
-def test_parse_rejects_more_than_one_mount():
-    with pytest.raises(ValueError, match="只能配置 1 个"):
-        parse_tos_mounts("tos://b1/a/,tos://b1/b/")
+def test_parse_allows_multiple_distinct_mounts():
+    raw = "tos://b1/a/, tos://b1/b/\ntos://b2/c/"
+    assert parse_tos_mounts(raw) == (("b1", "a/"), ("b1", "b/"), ("b2", "c/"))
 
 
 def test_output_storage_requires_bucket_prefix_and_trailing_slash():
