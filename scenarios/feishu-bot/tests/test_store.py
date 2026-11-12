@@ -135,3 +135,52 @@ def test_legacy_table_without_new_columns_is_migrated():
     cols = {r[1] for r in migrated._db.execute("PRAGMA table_info(conversations)").fetchall()}
     assert {"user_id", "chat_type", "created_at"} <= cols
     assert migrated.get_session(_key()) == "sesn-legacy"  # 老数据仍可读
+
+
+def _history(store):
+    return store._db.execute(
+        "SELECT chat_id, thread_id, user_open_id, user_id, chat_type, session_id, reason FROM session_history ORDER BY id"
+    ).fetchall()
+
+
+def test_reset_archives_old_session_before_delete():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sesn-old", "agent-1", user_id="u_alice", chat_type="p2p")
+    store.reset_session(key)
+    assert store.get_session(key) is None
+    assert _history(store) == [("chat", "", "ou-user", "u_alice", "p2p", "sesn-old", "reset")]
+
+
+def test_replacing_a_different_session_archives_the_old_one():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sesn-1", "agent-1", user_id="u_alice", chat_type="p2p")
+    store.save_session(key, "sesn-2", "agent-1", user_id="u_alice", chat_type="p2p")
+    assert [h[5:] for h in _history(store)] == [("sesn-1", "replaced")]
+    assert store.get_session(key) == "sesn-2"
+
+
+def test_saving_same_session_again_does_not_archive():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sesn-1", "agent-1", user_id="u_alice", chat_type="p2p")
+    store.save_session(key, "sesn-1", "agent-1")  # 同 session 再存:不算替换,不归档
+    assert _history(store) == []
+
+
+def test_reset_all_archives_every_row_with_split_identity():
+    store = _store()
+    store.save_session(_key("ou_a"), "s1", "agent-1", user_id="u_a", chat_type="p2p")
+    store.save_session(ConversationKey("t", "oc_g", "th", "ou_b"), "s2", "agent-1", user_id="", chat_type="group")
+    assert store.reset_all_sessions() == 2
+    rows = {h[5]: h for h in _history(store)}
+    assert rows["s1"][:5] == ("chat", "", "ou_a", "u_a", "p2p")
+    assert rows["s2"][:5] == ("oc_g", "th", "ou_b", "", "group")
+    assert all(h[6] == "reset_all" for h in rows.values())
+
+
+def test_reset_with_nothing_to_archive_is_noop():
+    store = _store()
+    store.reset_session(_key())
+    assert _history(store) == []
