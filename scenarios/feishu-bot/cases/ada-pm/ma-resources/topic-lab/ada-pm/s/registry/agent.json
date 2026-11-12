@@ -1,0 +1,12 @@
+{
+  "id": "topic-lab.ada-pm.s",
+  "version": "1.2.0",
+  "role": "sub",
+  "visibility": "internal",
+  "owner": {
+    "team": "Ada 项目维护方",
+    "primary": "待指定",
+    "backup": "待指定"
+  },
+  "description": "自动结果和必要检查齐备后的整合；不前置或重复 h"
+}

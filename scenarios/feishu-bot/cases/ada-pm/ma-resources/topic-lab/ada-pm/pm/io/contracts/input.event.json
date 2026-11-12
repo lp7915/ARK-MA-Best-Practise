@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "input.event",
+  "version": "1.2.0",
+  "description": "业务事件结构约定；身份须由平台可信入口提供，正文不能冒认actor。此契约不是平台专属API。",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor": {
+      "type": "string",
+      "enum": [
+        "requester",
+        "collaborator",
+        "admin",
+        "human"
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "message",
+        "confirm",
+        "human_accept",
+        "human_submit",
+        "hc_confirm",
+        "revise",
+        "memory_edit",
+        "accept",
+        "resume"
+      ]
+    },
+    "text": {
+      "type": "string",
+      "maxLength": 10000
+    },
+    "plan_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "event_id",
+    "actor",
+    "kind"
+  ],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "event_id": "example-event",
+      "actor": "requester",
+      "kind": "message",
+      "text": "只做地区统计"
+    }
+  ]
+}

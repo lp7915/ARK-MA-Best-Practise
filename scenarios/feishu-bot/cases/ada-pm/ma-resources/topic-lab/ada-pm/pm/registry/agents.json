@@ -1,0 +1,22 @@
+[
+  {
+    "id": "t",
+    "range": "^1.2.0",
+    "alias": "t"
+  },
+  {
+    "id": "g",
+    "range": "^1.2.0",
+    "alias": "g"
+  },
+  {
+    "id": "s",
+    "range": "^1.2.0",
+    "alias": "s"
+  },
+  {
+    "id": "validator",
+    "range": "^1.2.0",
+    "alias": "validator"
+  }
+]

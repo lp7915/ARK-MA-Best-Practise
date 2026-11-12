@@ -1,0 +1,16 @@
+{
+  "source": "project:routing_unit",
+  "copied_without_changes": true,
+  "files": {
+    "__init__.py": "beffb3f9841b8ebcce14a49938e4d13c6bc13437b996a3e8da868662ce2039ef",
+    "__main__.py": "bf93ba9e5252885c40d41f5b1267d5718a50114a32fcd9b92ca580e04f48f666",
+    "cases.json": "fd3bcde7435ed77aaeaa89a666fc4bafe84c8595ae950a26cb8b25d6cd4d019a",
+    "catalog.json": "d609a8c6830869eae11aa43aef79c0569ea52a3105a44b9930cb65dd6fbb55f6",
+    "engine.py": "8a255cc75a16a05ea1af604fabc51b58b5df035ed45d18004814e006f6f7a36f",
+    "node.py": "1e815fd168b4da17f83569cfad07f42be27fc12881c8747f078debefa752ac06",
+    "registry.py": "26d08fbc7a664bd6b6aa06d2e98f3825bbcc4fb385c8ab10d25196f393108060",
+    "replay.py": "d45ed39c8c54076b57f66735224315aaa8cff043c247497cebc8d0d3f93a244a",
+    "semantic.py": "b84c59a52c1771b271a44adbdb18fc3a0653627f122bfb13c89626320f1c149b"
+  },
+  "scope": "随本包锁定的原路由源码、配置及可复用回归样例；摘要不代表平台注册"
+}

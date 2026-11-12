@@ -5,22 +5,27 @@
   - 卡点 C：RoleManager 判是否挂 system.message（动态岗位注入）。
   - 卡点 D：MemoryManager 组装 resources（挂用户专属 Memory Store）。
 
-聊天指令：/new 开新会话、/remember <内容> 写入长期记忆、/role <描述> 模拟岗位调动、/whoami 查看当前岗位。
+聊天指令：/new 开新会话、/stop 中断当前任务、/remember <内容> 写入长期记忆、/role <描述> 模拟岗位调动、/whoami 查看当前岗位。
 WS 回调（可能来自其它线程）只做去重与入队，满足飞书 3 秒处理约束。
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from typing import Awaitable, Callable, Optional
 
 from ..ark import ArkClient, RunResult
+from ..attachments import Downloader, build_attachment_note, mount_message_attachments
 from ..feishu import IncomingMessage
 from ..memory import MemoryManager
+from ..obs_pilot.reporter import PilotReporter
 from ..role import RoleInfo, RoleManager
 from ..store import ConversationKey, GatewayStore
 from ..timing import Stopwatch, time_block
-from ..tos_mounts import build_tos_resources
+from ..tos_mounts import scope_output_storage
+
+logger = logging.getLogger(__name__)
 
 Reply = Callable[[str, str], Awaitable[None]]
 DEFAULT_PROGRESS_DELAY_MS = 2_500
@@ -64,7 +69,7 @@ class Gateway:
         agent_id: str,
         environment_id: str,
         vault_id: str,
-        timeout_ms: int,
+        timeout_ms: Optional[int],  # None=不设等待上限，只在 Session 终态/出错时返回
         authorized_open_ids: tuple[str, ...] = (),
         progress_delay_ms: int = DEFAULT_PROGRESS_DELAY_MS,
         role_manager: Optional[RoleManager] = None,
@@ -72,10 +77,14 @@ class Gateway:
         before_create_session: Optional[Callable[[], Awaitable[None]]] = None,
         loop: Optional[asyncio.AbstractEventLoop] = None,
         extra_headers: Optional[dict] = None,
-        tos_mounts: tuple[tuple[str, str], ...] = (),
         static_resources: tuple[dict, ...] = (),
         output_tos: Optional[dict] = None,
+        scope_output_by_user_topic: bool = False,
+        pilot_reporter: Optional[PilotReporter] = None,
+        download_resource: Optional[Downloader] = None,
     ) -> None:
+        # 飞书附件下载函数(FeishuSender.download_resource);None 表示该 case 不支持附件,带附件的消息按原行为忽略。
+        self._download_resource = download_resource
         self._store = store
         self._ark = ark
         self._reply = reply
@@ -92,23 +101,36 @@ class Gateway:
         self._queue = KeyedQueue()
         # BYOK Direct 模式：按请求动态附加的模型鉴权 Header；未配置时为 None（原豆包模式）。
         self._extra_headers = extra_headers
-        # 每个 Session 创建时固定挂载的 TOS 目录 (bucket, key)，沙箱内见 /mnt/session/storage/。
-        self._tos_resources = build_tos_resources(tos_mounts)
         # 每个 Session 固定追加的其它 resources（如全员共享的 Memory Store）。
         self._static_resources = list(static_resources)
         # 本 Gateway 创建的每个 Session 的产物存储（覆写 config.tos）；None 表示沿用 Environment 配置。
         self._output_tos = output_tos
+        # True 时在 output_tos 前缀下再按 分析师/Topic 拆分，多人、多 Topic 的工作区互不覆盖。
+        self._scope_output = scope_output_by_user_topic
+        # 正在等待 Agent 回复的 session；/stop 只对这些 session 生效。
+        self._active_runs: set[str] = set()
+        # 已被 /stop 中断的 session：对应那一轮的回复由 /stop 负责，不再按正常结果/失败回复。
+        self._stopped_runs: set[str] = set()
+        # A′ 观测上报：None 表示关闭。开启后每轮结束把该 Session 的事件流转成 Pilot 记录落盘。
+        self._pilot = pilot_reporter
 
     def accept(self, message: IncomingMessage) -> bool:
         """同步入口（可能被 WS 线程调用）：去重后把处理协程调度到事件循环。"""
         if not should_handle_message(message):
             return False
+        if not message.text.strip() and self._download_resource is None:
+            return False  # 纯附件消息但本 Gateway 不支持附件:没有可发给 Agent 的内容
         if not self._store.claim_event(message.event_id):
             return False
         key = to_conversation_key(message)
         conv_key = self._store.conversation_key(key)
+        is_stop = message.text.strip() == "/stop"
 
         def _do_enqueue() -> None:
+            if is_stop:
+                # /stop 不进串行队列：同会话的上一条消息还在跑，排队会等到它结束才轮到中断。
+                asyncio.get_event_loop().create_task(self._run_stop(message, key))
+                return
             self._queue.enqueue(conv_key, lambda: self._run_task(message, key))
 
         running = None
@@ -131,8 +153,58 @@ class Gateway:
             self._store.complete_event(message.event_id, "completed")
         except Exception as error:  # noqa: BLE001 - 网关兜底，任何失败都要回执给用户
             self._store.complete_event(message.event_id, "failed")
+            logger.exception(
+                "处理消息失败 chat_id=%s event_id=%s", message.chat_id, message.event_id
+            )
             reason = str(error)
-            await self._reply(message.chat_id, f"执行失败：{reason[:240]}")
+            try:
+                await self._reply(message.chat_id, f"执行失败：{reason[:240]}")
+            except Exception:  # noqa: BLE001 - 兜底回执本身也可能失败（如飞书 API 异常），
+                # 必须记录，否则用户和排查者都看不到任何痕迹，表现为「消息没发出去」。
+                logger.exception(
+                    "兜底回执也发送失败 chat_id=%s event_id=%s", message.chat_id, message.event_id
+                )
+
+    async def _run_stop(self, message: IncomingMessage, key: ConversationKey) -> None:
+        try:
+            await self._handle_stop(message, key)
+            self._store.complete_event(message.event_id, "completed")
+        except Exception as error:  # noqa: BLE001 - 与 _run_task 一致，失败要回执用户
+            self._store.complete_event(message.event_id, "failed")
+            logger.exception(
+                "处理 /stop 失败 chat_id=%s event_id=%s", message.chat_id, message.event_id
+            )
+            try:
+                await self._reply(message.chat_id, f"中断失败：{str(error)[:240]}")
+            except Exception:  # noqa: BLE001 - 同上，兜底回执失败也要留痕
+                logger.exception(
+                    "/stop 兜底回执也发送失败 chat_id=%s event_id=%s",
+                    message.chat_id,
+                    message.event_id,
+                )
+
+    async def _handle_stop(self, message: IncomingMessage, key: ConversationKey) -> None:
+        if self._authorized_open_ids and message.user_open_id not in self._authorized_open_ids:
+            await self._reply(message.chat_id, "当前用户未授权。请联系管理员把你的 open_id 加入白名单。")
+            return
+        session_id = self._store.get_session(key)
+        if not session_id or session_id not in self._active_runs:
+            await self._reply(message.chat_id, "当前没有正在执行的任务。")
+            return
+        # 先登记再发中断：run() 收到 idle 后返回时，必须已能识别这是用户主动中断。
+        self._stopped_runs.add(session_id)
+        try:
+            boundary = await self._ark.send_interrupt(session_id)
+            result = await self._ark.wait_for_interrupt(session_id, boundary)
+        except Exception:
+            self._stopped_runs.discard(session_id)
+            raise
+        if result.terminal == "stopped":
+            await self._reply(message.chat_id, "已中断当前任务。会话仍保留，可以继续发消息。")
+        elif result.terminal == "failed":
+            await self._reply(message.chat_id, f"已发送中断，但 Session 随后出错：{(result.error or '未知错误')[:200]}")
+        else:
+            await self._reply(message.chat_id, "已发送中断请求，但暂未确认 Agent 已停止，请稍后查看。")
 
     async def _process(self, message: IncomingMessage, key: ConversationKey) -> None:
         if self._authorized_open_ids and message.user_open_id not in self._authorized_open_ids:
@@ -176,7 +248,7 @@ class Gateway:
         if not session_id:
             await self._reply(message.chat_id, "已收到，正在处理。首次启动可能需要几分钟。")
             with time_block("gateway.create_session", user=message.user_open_id, first=True):
-                session_id = await self._create_session(message)
+                session_id = await self._create_session(message, key)
             self._store.save_session(key, session_id, self._agent_id)
         else:
             progress_task = asyncio.get_event_loop().create_task(self._delayed_progress(message.chat_id))
@@ -187,23 +259,51 @@ class Gateway:
             with time_block("gateway.role_system_message", user=message.user_open_id):
                 system_message = self._role.system_message_for(message.user_open_id, session_id)
 
+        user_text = message.text
+        if message.resources and self._download_resource is not None:
+            # 附件挂到已存在的 Session(/mnt/session/uploads/),正文末尾告诉 Agent 路径;失败只出提示不中断。
+            with time_block("gateway.mount_attachments", session=session_id, count=len(message.resources)):
+                paths, notices = await mount_message_attachments(
+                    self._ark, self._download_resource, session_id, message
+                )
+            note = build_attachment_note(paths, notices, attachments_only=not message.text.strip())
+            user_text = f"{user_text}\n\n{note}".strip() if note else user_text
+
+        self._active_runs.add(session_id)
         try:
             # 不传 on_progress：避免把 tool_use/tool_result 转成进度消息刷屏。
             with time_block("gateway.run", session=session_id, first=first_message):
                 result = await self._ark.run(
-                session_id, message.text, self._timeout_ms, system_message=system_message,
+                session_id, user_text, self._timeout_ms, system_message=system_message,
                 extra_headers=self._extra_headers,
             )
+        except Exception:
+            if session_id in self._stopped_runs:
+                self._stopped_runs.discard(session_id)
+                return  # 用户已 /stop，由 /stop 的回执告知，不再报「执行失败」
+            raise
         finally:
+            self._active_runs.discard(session_id)
             if progress_task is not None:
                 progress_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await progress_task
+        if session_id in self._stopped_runs:
+            self._stopped_runs.discard(session_id)
+            return  # 被中断的这一轮只可能有半截回复，丢弃，不推给用户
         with time_block("gateway.reply", chat=message.chat_id):
             await self._reply(message.chat_id, result_to_reply(result))
         sw.mark("gateway.total", user=message.user_open_id, first=first_message)
+        await self._report_observability(session_id, message.user_open_id)
 
-    async def _create_session(self, message: IncomingMessage) -> str:
+    async def _report_observability(self, session_id: str, user_open_id: str) -> None:
+        """A′ 观测上报：旁路，任何失败都只记日志，不影响用户拿到的回复。"""
+        if self._pilot is None:
+            return
+        with time_block("gateway.obs_report", session=session_id):
+            await self._pilot.report(self._ark, session_id, user_id=user_open_id)
+
+    async def _create_session(self, message: IncomingMessage, key: ConversationKey) -> str:
         resources: list[dict] = []
         role_info: Optional[RoleInfo] = None
         if self._role:
@@ -212,8 +312,14 @@ class Gateway:
         if self._memory:
             with time_block("gateway.build_session_resources", user=message.user_open_id):
                 resources = await self._memory.build_session_resources(message.user_open_id, role_info)
-        resources = [*resources, *self._static_resources, *self._tos_resources]
-        extra: dict = {"output_tos": self._output_tos} if self._output_tos else {}
+        resources = [*resources, *self._static_resources]
+        output_tos = self._output_tos
+        if output_tos and self._scope_output:
+            # Topic = 飞书话题；非话题消息（单聊/群主线）退化为 chat_id。
+            output_tos = scope_output_storage(
+                output_tos, user=key.user_open_id or "", topic=key.thread_id or key.chat_id
+            )
+        extra: dict = {"output_tos": output_tos} if output_tos else {}
         with time_block("gateway.ark_create_session", user=message.user_open_id):
             return await self._ark.create_session(
                 self._agent_id,
@@ -274,7 +380,8 @@ class Gateway:
 
 
 def should_handle_message(message: IncomingMessage) -> bool:
-    if not message.text.strip():
+    # 纯图片/文件消息没有正文,但带附件时也要处理(是否真能处理附件由 Gateway 是否配置下载器决定)。
+    if not message.text.strip() and not message.resources:
         return False
     return message.chat_type == "p2p" or message.mentioned_bot
 

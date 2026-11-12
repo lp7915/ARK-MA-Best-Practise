@@ -2,27 +2,10 @@ import asyncio
 
 import pytest
 
-from arkagent.tos_mounts import build_output_storage, build_tos_resources, parse_tos_mounts
+from arkagent.tos_mounts import build_output_storage, scope_output_storage
 from arkagent.gateway.orchestrator import Gateway
 from arkagent.store import GatewayStore
 from test_gateway import FakeArk, message
-
-
-def test_parse_single_mount_and_empty():
-    assert parse_tos_mounts("tos://b1/a/") == (("b1", "a/"),)
-    assert parse_tos_mounts("tos://b1/a/\ntos://b1/a/") == (("b1", "a/"),)  # 完全相同视为一个
-    assert parse_tos_mounts("") == ()
-
-
-@pytest.mark.parametrize("raw", ["b1/a/", "tos:///a/", "tos://b1", "tos://b1/a"])
-def test_parse_rejects_invalid(raw):
-    with pytest.raises(ValueError):
-        parse_tos_mounts(raw)
-
-
-def test_parse_allows_multiple_distinct_mounts():
-    raw = "tos://b1/a/, tos://b1/b/\ntos://b2/c/"
-    assert parse_tos_mounts(raw) == (("b1", "a/"), ("b1", "b/"), ("b2", "c/"))
 
 
 def test_output_storage_requires_bucket_prefix_and_trailing_slash():
@@ -32,13 +15,30 @@ def test_output_storage_requires_bucket_prefix_and_trailing_slash():
             build_output_storage(bucket, prefix)
 
 
-def test_build_resources_shape():
-    assert build_tos_resources((("b1", "a/"),)) == [
-        {"type": "tos", "tos_bucket": "b1", "tos_key": "a/"}
-    ]
+def test_scope_isolates_by_user_and_topic():
+    base = {"bucket": "b", "prefix": "ws/"}
+    a1 = scope_output_storage(base, user="ou_a", topic="omt_1")
+    assert a1 == {"bucket": "b", "prefix": "ws/users/ou_a/omt_1/"}
+    assert scope_output_storage(base, user="ou_a", topic="omt_1") == a1  # 稳定可复现
+    prefixes = {
+        scope_output_storage(base, user=u, topic=t)["prefix"]
+        for u in ("ou_a", "ou_b") for t in ("omt_1", "omt_2")
+    }
+    assert len(prefixes) == 4
 
 
-async def test_gateway_mounts_tos_on_create_session():
+@pytest.mark.parametrize("user,topic", [("", "t"), ("u", ""), ("..", "t"), ("u", " ")])
+def test_scope_rejects_empty_identity(user, topic):
+    with pytest.raises(ValueError):
+        scope_output_storage({"bucket": "b", "prefix": "ws/"}, user=user, topic=topic)
+
+
+def test_scope_cannot_escape_via_separators():
+    out = scope_output_storage({"bucket": "b", "prefix": "ws/"}, user="../x", topic="a/b")
+    assert out["prefix"] == "ws/users/.._x/a_b/"
+
+
+async def _create(**gw_kwargs):
     ark = FakeArk()
 
     async def reply(chat_id, text):
@@ -46,25 +46,20 @@ async def test_gateway_mounts_tos_on_create_session():
 
     gw = Gateway(
         GatewayStore(":memory:"), ark, reply,
-        agent_id="a", environment_id="e", vault_id="v", timeout_ms=5_000,
-        tos_mounts=(("b1", "data/"),),
+        agent_id="a", environment_id="e", vault_id="v", timeout_ms=5_000, **gw_kwargs,
     )
-    gw.accept(message())
-    await asyncio.sleep(0.05)
-    assert ark.last_resources == [{"type": "tos", "tos_bucket": "b1", "tos_key": "data/"}]
+    return gw, ark
 
 
-async def test_gateway_passes_output_tos_to_create_session():
-    ark = FakeArk()
-
-    async def reply(chat_id, text):
-        pass
-
-    gw = Gateway(
-        GatewayStore(":memory:"), ark, reply,
-        agent_id="a", environment_id="e", vault_id="v", timeout_ms=5_000,
-        output_tos={"bucket": "b", "prefix": "out/"},
-    )
+async def test_gateway_passes_unscoped_output_tos_by_default():
+    gw, ark = await _create(output_tos={"bucket": "b", "prefix": "out/"})
     gw.accept(message())
     await asyncio.sleep(0.05)
     assert ark.last_output_tos == {"bucket": "b", "prefix": "out/"}
+
+
+async def test_gateway_scopes_output_by_user_and_thread():
+    gw, ark = await _create(output_tos={"bucket": "b", "prefix": "out/"}, scope_output_by_user_topic=True)
+    gw.accept(message(thread_id="omt_9"))
+    await asyncio.sleep(0.05)
+    assert ark.last_output_tos == {"bucket": "b", "prefix": "out/users/user-1/omt_9/"}

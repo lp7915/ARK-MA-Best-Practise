@@ -787,7 +787,7 @@ class ArkClient:
         self,
         session_id: str,
         text: str,
-        timeout_ms: int,
+        timeout_ms: Optional[int],
         on_progress: Optional[Callable[[str], Awaitable[None]]] = None,
         system_message: Optional[str] = None,
         custom_tool_handler: Optional[
@@ -889,7 +889,10 @@ class ArkClient:
                             )
                 raise ArkError("事件流结束，但未观察到 Session 终态")
 
-            return await asyncio.wait_for(_drive(), timeout=timeout_ms / 1000)
+            # timeout_ms 为 None：不设等待上限，只在 Session 自身到终态（idle/失败/终止）或事件流异常时返回。
+            return await asyncio.wait_for(
+                _drive(), timeout=None if timeout_ms is None else timeout_ms / 1000
+            )
         except (asyncio.TimeoutError, httpx.ReadTimeout):
             recovered = await self._recover_timed_out_run(session_id, started_at)
             if recovered:

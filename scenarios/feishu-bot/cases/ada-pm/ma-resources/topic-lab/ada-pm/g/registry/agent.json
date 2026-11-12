@@ -1,0 +1,12 @@
+{
+  "id": "topic-lab.ada-pm.g",
+  "version": "1.2.0",
+  "role": "sub",
+  "visibility": "internal",
+  "owner": {
+    "team": "Ada 项目维护方",
+    "primary": "待指定",
+    "backup": "待指定"
+  },
+  "description": "仅局部或剩余原子动作；不重复 t 或扩大成完整报告"
+}

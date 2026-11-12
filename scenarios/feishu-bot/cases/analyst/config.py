@@ -1,4 +1,4 @@
-"""analyst case 的配置:飞书凭据 + 分析师 Agent/Environment/Vault/Memory + TOS 挂载 + BYOK 鉴权头。"""
+"""analyst case 的配置:飞书凭据 + 分析师 Agent/Environment/Vault/Memory + 产物存储 + BYOK 鉴权头。"""
 from __future__ import annotations
 
 import os
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Mapping, Optional
 
 from arkagent.memory_mounts import parse_memory_stores
-from arkagent.tos_mounts import build_output_storage, parse_tos_mounts
+from arkagent.tos_mounts import build_output_storage
 
 REQUIRED_KEYS = [
     "ARK_API_KEY",
@@ -28,15 +28,15 @@ class AnalystConfig:
     vault_id: str
     # 挂载的 Memory Store：(store_id, access)，逐个配置，未写权限的默认 read_only。
     memory_stores: tuple[tuple[str, str], ...]
-    # 所有用户、所有 Session 一致的 TOS 目录，沙箱内见 /mnt/session/storage/。
-    tos_mounts: tuple[tuple[str, str], ...]
-    # 产物存储（覆写 config.tos）：(bucket, prefix)；None 表示沿用 Environment 的配置。
+    # 产物存储基础位置（覆写 config.tos）：bucket + prefix；None 表示沿用 Environment 的配置。
+    # 实际写入 users/<分析师>/<Topic>/ 子前缀，见 scope_output_storage。
     output_tos: Optional[dict]
     authorized_open_ids: tuple[str, ...]
-    session_timeout_ms: int
     # BYOK Direct：按请求以 X-User-Model-Header-{name} 附加；两者均为空则不附加。
     model_auth_header_name: str = ""
     model_auth_header_value: str = ""
+    # 方案 B 观测上报开关：开启后每轮结束把 Session 事件流转成 Pilot 记录，落到本机 Pilot 输入目录。
+    obs_pilot_enabled: bool = False
 
     @property
     def extra_headers(self) -> Optional[dict]:
@@ -66,13 +66,6 @@ def load_case_config(env: Optional[Mapping[str, str]] = None) -> AnalystConfig:
     header_value = (environ.get("BYOK_MODEL_AUTH_HEADER_VALUE") or "").strip()
     if bool(header_name) != bool(header_value):
         raise RuntimeError("BYOK_MODEL_AUTH_HEADER_NAME 与 BYOK_MODEL_AUTH_HEADER_VALUE 必须同时填写或同时留空")
-    timeout_ms = int(environ.get("ANALYST_SESSION_TIMEOUT_MS") or "600000")
-    if timeout_ms <= 0:
-        raise RuntimeError("ANALYST_SESSION_TIMEOUT_MS 必须大于 0")
-    try:
-        tos_mounts = parse_tos_mounts(environ.get("ANALYST_TOS_MOUNTS") or "")
-    except ValueError as error:
-        raise RuntimeError(f"ANALYST_TOS_MOUNTS 配置错误:{error}") from error
     return AnalystConfig(
         ark_api_key=environ["ARK_API_KEY"],
         ark_base_url=(environ.get("ARK_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3").rstrip("/"),
@@ -82,14 +75,13 @@ def load_case_config(env: Optional[Mapping[str, str]] = None) -> AnalystConfig:
         environment_id=environ["ANALYST_ENVIRONMENT_ID"].strip(),
         vault_id=(environ.get("ANALYST_VAULT_ID") or "").strip(),
         memory_stores=memory_stores,
-        tos_mounts=tos_mounts,
         output_tos=output_tos,
         authorized_open_ids=tuple(
             i.strip()
             for i in (environ.get("AUTHORIZED_OPEN_IDS") or "").replace(",", " ").split()
             if i.strip()
         ),
-        session_timeout_ms=timeout_ms,
         model_auth_header_name=header_name,
         model_auth_header_value=header_value,
+        obs_pilot_enabled=(environ.get("OBS_PILOT_ENABLED") or "").strip().lower() in ("1", "true", "yes", "on"),
     )

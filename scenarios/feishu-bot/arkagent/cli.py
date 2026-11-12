@@ -11,10 +11,15 @@ import logging
 import os
 import sys
 import threading
+from logging.handlers import RotatingFileHandler
 
 from .config import load_config, load_config_file
 from .masked_input import read_masked_input
 from .paths import get_arkagent_paths
+
+# 单个日志文件最大 10MB，保留 5 个历史文件，防止无限增长撑爆磁盘。
+_LOG_MAX_BYTES = 10 * 1024 * 1024
+_LOG_BACKUP_COUNT = 5
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -33,6 +38,10 @@ def main(argv: list[str] | None = None) -> int:
                 asyncio.run(_init())
         elif command == "update-agent":
             asyncio.run(_update_agent(argv[1:]))
+        elif command == "trace":
+            from .observability.cli import run as run_trace
+
+            return asyncio.run(run_trace(argv[1:]))
         else:
             _print_help()
         return 0
@@ -81,11 +90,6 @@ def _run(args: list[str] | None = None) -> None:
     from .feishu import FeishuSender, start_feishu_gateway
     from .paths import get_case_paths, get_feishu_lock_path
 
-    logging.basicConfig(
-        level=os.environ.get("ARKAGENT_LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-
     case_name = _parse_case_arg(args or [])
     available = list_cases()
     if not case_name:
@@ -95,6 +99,19 @@ def _run(args: list[str] | None = None) -> None:
     case = load_case(case_name)
     case_paths = get_case_paths(case_name)
     os.makedirs(case_paths.case_dir, exist_ok=True)
+
+    # 同时输出到终端和 {case_dir}/gateway.log：进程常以 nohup/后台方式长期运行，
+    # 终端输出不一定被保留，落盘才能在事后排查「消息没发出去」之类的问题。
+    log_level = os.environ.get("ARKAGENT_LOG_LEVEL", "INFO").upper()
+    log_path = os.path.join(case_paths.case_dir, "gateway.log")
+    log_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    file_handler = RotatingFileHandler(
+        log_path, maxBytes=_LOG_MAX_BYTES, backupCount=_LOG_BACKUP_COUNT, encoding="utf-8"
+    )
+    file_handler.setFormatter(log_formatter)
+    logging.basicConfig(level=log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.getLogger().addHandler(file_handler)
+    logging.getLogger().setLevel(log_level)
 
     if os.path.exists(case_paths.config_path):
         load_config_file(case_paths.config_path)
@@ -121,6 +138,7 @@ def _run(args: list[str] | None = None) -> None:
         print(f"Gateway 配置(case={case_name}):")
         print(f"- 飞书 App ID:{config.feishu_app_id}")
         print(f"- 环境变量文件:{case_paths.config_path}")
+        print(f"- 日志文件:{log_path}")
         print(f"- 锁文件:{lock_path}(pid={os.getpid()};按 App ID 分粒度)")
         print("正在连接飞书 WebSocket;请在该 Bot 会话中发送消息。")
         start_feishu_gateway(config.feishu_app_id, config.feishu_app_secret, gateway)
@@ -380,6 +398,7 @@ def _print_help() -> None:
         "  update-agent  用最新的 system prompt/工具配置更新现有 Agent（不重扫码、不新建 bot）\n"
         "                加 --mcp-url <新地址> 可一并换 MCP 公网地址：重建 static_bearer 凭据 + 写回 config.env\n"
         "  doctor        检查配置并验证方舟 Agent\n"
+        "  trace         任务全链路观测:trace list / trace show <id>(详见 docs/OBSERVABILITY_PLAN.md)\n"
         "  run --case topicx  启动 Topic5/Topic6 统一 Gateway"
     )
 

@@ -262,6 +262,24 @@ def test_inbound_ignores_non_text():
     assert _inbound_to_incoming(_inbound(raw_content_type="image")) is None
 
 
+def test_inbound_handles_post_without_attachment():
+    # 回归:用户的编号长消息以 post 发出且无附件,曾被当成不支持类型静默丢弃,表现为机器人不理人。
+    msg = _inbound(
+        raw_content_type="post",
+        content_text="如果我已经有了一个 Topic 的 V1 版本\n\n1. 我是否可以把完整的打包上传给你",
+        conversation=SimpleNamespace(chat_id="oc-direct", chat_type="p2p", thread_id=None),
+        mentioned_bot=False,
+        resources=[],
+    )
+
+    result = _inbound_to_incoming(msg)
+
+    assert result is not None
+    assert result.content_type == "post"
+    assert result.text.startswith("如果我已经有了一个 Topic")
+    assert result.resources == ()
+
+
 def test_inbound_defaults_tenant_when_missing():
     result = _inbound_to_incoming(_inbound(mentions=[], mentioned_bot=False))
     assert result is not None

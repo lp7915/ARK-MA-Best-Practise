@@ -1,36 +1,12 @@
-"""Session 级 TOS 目录挂载：解析 ``tos://bucket/prefix/`` 列表并生成 ``resources`` 条目。
+"""产物存储（Session 级 ``config.tos`` 覆写）：沙箱内写入 ``/mnt/session/outputs/`` 的文件落到指定 TOS 前缀。
 
-挂载后文件出现在沙箱 ``/mnt/session/storage/``。与 Environment 的 ``config.tos``
-（产物存储）是两回事，见方舟 Managed Agents 文档「区分产物存储与 TOS 资源挂载」。
+不再使用 ``type: tos`` 资源挂载；工作区统一走产物存储，并按分析师、Topic 拆分前缀以避免互相覆盖。
 """
 from __future__ import annotations
 
-from typing import Iterable
+import re
 
-_SCHEME = "tos://"
-
-
-def parse_tos_mounts(raw: str) -> tuple[tuple[str, str], ...]:
-    """把逗号/换行分隔的 ``tos://bucket/dir/`` 解析为 ``((bucket, key), ...)``，去重并保序。
-
-    ``tos_key`` 必须是以 ``/`` 结尾的目录，不合法直接抛 ValueError，避免带病创建 Session。
-    数量不在本地限制：平台对重复目录、不存在的前缀会在创建 Session 时直接报错。
-    """
-    mounts: list[tuple[str, str]] = []
-    for item in raw.replace("\n", ",").split(","):
-        item = item.strip()
-        if not item:
-            continue
-        if not item.startswith(_SCHEME):
-            raise ValueError(f"TOS 挂载项必须以 {_SCHEME} 开头：{item!r}")
-        bucket, _, key = item[len(_SCHEME):].partition("/")
-        if not bucket:
-            raise ValueError(f"TOS 挂载项缺少 bucket：{item!r}")
-        if not key or not key.endswith("/"):
-            raise ValueError(f"TOS 挂载项必须是以 / 结尾的目录：{item!r}")
-        if (bucket, key) not in mounts:
-            mounts.append((bucket, key))
-    return tuple(mounts)
+_UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 
 
 def build_output_storage(bucket: str, prefix: str) -> dict:
@@ -42,6 +18,20 @@ def build_output_storage(bucket: str, prefix: str) -> dict:
     return {"bucket": bucket, "prefix": prefix}
 
 
-def build_tos_resources(mounts: Iterable[tuple[str, str]]) -> list[dict]:
-    """生成 ``create_session(resources=...)`` 所需的 ``type: tos`` 条目。"""
-    return [{"type": "tos", "tos_bucket": bucket, "tos_key": key} for bucket, key in mounts]
+def _segment(value: str, label: str) -> str:
+    """把身份标识规整为单层目录名；空值直接报错，避免落到上层目录造成串用。"""
+    cleaned = _UNSAFE.sub("_", (value or "").strip())
+    if not cleaned or set(cleaned) == {"."}:
+        raise ValueError(f"{label} 不能为空")
+    return cleaned
+
+
+def scope_output_storage(base: dict, *, user: str, topic: str) -> dict:
+    """在基础前缀下按 ``users/<分析师>/<Topic>/`` 切出独立工作区。
+
+    - 不同分析师、同一分析师的不同 Topic 前缀互不重叠，不会互相覆盖；
+    - 同一分析师同一 Topic 的前缀稳定（``/new`` 或重建 Session 后仍落同一目录），
+      多个 Gateway 实例算出的前缀一致，无需共享本地状态。
+    """
+    prefix = f"{base['prefix']}users/{_segment(user, '分析师标识')}/{_segment(topic, 'Topic 标识')}/"
+    return {"bucket": base["bucket"], "prefix": prefix}

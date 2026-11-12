@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "input.envelope",
+  "version": "1.2.0",
+  "description": "AC 标准数据信封",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "type"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "string",
+              "integer",
+              "number",
+              "boolean",
+              "datetime",
+              "enum",
+              "json"
+            ]
+          }
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "meta": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema",
+    "rows",
+    "meta"
+  ],
+  "examples": [
+    {
+      "schema": [
+        {
+          "name": "id",
+          "type": "string"
+        }
+      ],
+      "rows": [
+        {
+          "id": "sample"
+        }
+      ],
+      "meta": {
+        "source": "synthetic"
+      }
+    }
+  ]
+}

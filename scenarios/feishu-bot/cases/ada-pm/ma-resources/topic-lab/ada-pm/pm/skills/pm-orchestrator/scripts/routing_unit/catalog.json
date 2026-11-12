@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "registry_version": "demo_2026-11-06.1",
+  "simulation_only": true,
+  "topics": [
+    {
+      "id": "demo_audience_report", "version": "1.0.0", "domain": "audience",
+      "name": "演示人群洞察主题报告", "product": "full_audience_report",
+      "outputs": ["full_audience_report", "audience_profile", "audience_needs"],
+      "required_execution_fields": ["period", "dataset"], "enabled": true
+    },
+    {
+      "id": "demo_social_report", "version": "1.0.0", "domain": "social",
+      "name": "演示社媒舆情主题报告", "product": "full_social_report",
+      "outputs": ["full_social_report", "sentiment_summary", "issue_summary"],
+      "required_execution_fields": ["period", "dataset"], "enabled": true
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "demo_audience_profile", "version": "1.0.0", "method": "audience_profile",
+      "input_type": "table", "outputs": ["audience_profile"],
+      "required_execution_fields": ["dataset"], "enabled": true, "available": true
+    },
+    {
+      "id": "demo_sentiment", "version": "1.0.0", "method": "sentiment",
+      "input_type": "text_table", "outputs": ["sentiment_summary"],
+      "required_execution_fields": ["dataset"], "enabled": true, "available": true
+    },
+    {
+      "id": "demo_deduplicate", "version": "1.0.0", "method": "deduplicate",
+      "input_type": "table", "outputs": ["deduplicated_table"],
+      "required_execution_fields": ["dataset", "dedup_key"], "enabled": true, "available": true
+    },
+    {
+      "id": "demo_aggregate", "version": "1.0.0", "method": "aggregate",
+      "input_type": "table", "outputs": ["aggregate_metrics"],
+      "required_execution_fields": ["dataset", "metric"], "enabled": true, "available": true
+    },
+    {
+      "id": "demo_correlate", "version": "1.0.0", "method": "correlate",
+      "input_type": "table", "outputs": ["correlation_result"],
+      "required_execution_fields": ["dataset", "metric"], "enabled": true, "available": true
+    }
+  ],
+  "unsupported_methods": {
+    "causal": "演示能力只支持描述/相关分析，没有证明因果的研究方法。",
+    "forecast": "演示注册表明确没有可用的未来销量预测方法。",
+    "offline_interview": "演示注册表明确不支持线下入户访谈。"
+  }
+}

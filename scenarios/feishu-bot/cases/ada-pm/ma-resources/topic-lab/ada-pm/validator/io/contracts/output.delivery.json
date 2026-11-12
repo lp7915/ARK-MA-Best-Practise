@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "output.delivery",
+  "version": "1.2.0",
+  "description": "PM实际交付清单：按真实执行环境记录产物、各目标回执及发起人接受状态；未发生的动作不得记为通过",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "receipts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "scope": {
+      "enum": [
+        "ma-agent-demo",
+        "local-script-test"
+      ]
+    },
+    "acceptance": {
+      "enum": [
+        "not-required",
+        "pending",
+        "accepted"
+      ]
+    }
+  },
+  "required": [
+    "task_id",
+    "run_id",
+    "artifacts",
+    "receipts",
+    "scope",
+    "acceptance"
+  ],
+  "produced_by": "pm",
+  "artifact_type": "manifest",
+  "location": "run/delivery/manifest.json",
+  "based_on": [
+    "output.worker-result",
+    "output.artifact"
+  ],
+  "examples": [
+    {
+      "task_id": "task-reference",
+      "run_id": "run-reference",
+      "artifacts": [],
+      "receipts": [
+        {
+          "target": "feishu",
+          "conclusion": "未执行"
+        }
+      ],
+      "scope": "ma-agent-demo",
+      "acceptance": "pending"
+    }
+  ]
+}
