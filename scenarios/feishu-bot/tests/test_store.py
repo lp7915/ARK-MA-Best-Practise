@@ -68,3 +68,70 @@ def test_team_store_mapping_roundtrip():
     store = _store()
     store.save_team_store_id("销售", "team-1")
     assert store.get_team_store_id("销售") == "team-1"
+
+
+def _identity(store, key):
+    return store._db.execute(
+        "SELECT user_id, chat_type, created_at FROM conversations WHERE conversation_key = ?",
+        (store.conversation_key(key),),
+    ).fetchone()
+
+
+def test_save_session_records_user_id_and_chat_type():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sess-1", "agent-1", user_id="u_alice", chat_type="p2p")
+    assert _identity(store, key) == ("u_alice", "p2p", _identity(store, key)[2])  # created_at 非空
+    assert _identity(store, key)[2] != ""
+
+
+def test_resave_without_identity_does_not_wipe_existing_user_id():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sess-1", "agent-1", user_id="u_alice", chat_type="p2p")
+    store.save_session(key, "sess-1", "agent-1")  # 同 session 重复保存、不带身份:不能清掉已记录的
+    assert _identity(store, key)[:2] == ("u_alice", "p2p")
+
+
+def test_resave_with_new_identity_updates_it():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sess-1", "agent-1", user_id="u_alice", chat_type="p2p")
+    store.save_session(key, "sess-2", "agent-1", user_id="u_bob", chat_type="group")  # 换 session 了
+    assert _identity(store, key)[:2] == ("u_bob", "group")
+
+
+def test_created_at_is_stable_across_resave_of_same_session():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sess-1", "agent-1")
+    before = _identity(store, key)[2]
+    store.save_session(key, "sess-1", "agent-1")  # 同 session 再存:created_at 不变
+    assert _identity(store, key)[2] == before
+
+
+def test_legacy_table_without_new_columns_is_migrated():
+    import sqlite3
+
+    store = _store()
+    # 模拟老库:删掉迁移补的列
+    store._db.execute("ALTER TABLE conversations DROP COLUMN user_id")
+    store._db.execute("ALTER TABLE conversations DROP COLUMN chat_type")
+    store._db.execute("ALTER TABLE conversations DROP COLUMN created_at")
+    store._db.commit()
+    # 重新打开同一 :memory: 不可行,这里只验证迁移逻辑在初始化时执行——用一个真实文件库验证
+    import tempfile, pathlib
+
+    path = str(pathlib.Path(tempfile.mkdtemp()) / "old.db")
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE conversations (conversation_key TEXT PRIMARY KEY, session_id TEXT NOT NULL,"
+        " agent_id TEXT NOT NULL, agent_version TEXT, updated_at TEXT NOT NULL)"
+    )
+    conn.execute("INSERT INTO conversations VALUES ('chat:-:ou-user', 'sesn-legacy', 'agent-1', NULL, '2026-01-01')")
+    conn.commit()
+    conn.close()
+    migrated = GatewayStore(path)
+    cols = {r[1] for r in migrated._db.execute("PRAGMA table_info(conversations)").fetchall()}
+    assert {"user_id", "chat_type", "created_at"} <= cols
+    assert migrated.get_session(_key()) == "sesn-legacy"  # 老数据仍可读

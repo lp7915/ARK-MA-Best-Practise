@@ -75,6 +75,15 @@ class GatewayStore:
             );
             """
         )
+        # 老库补列:user_id(租户级稳定身份,open_id 按应用隔离、跨 bot 不通用)、chat_type、
+        # created_at(会话创建时间)。SQLite 没有 IF NOT EXISTS 语法,逐个补齐。
+        cols = {r[1] for r in self._db.execute("PRAGMA table_info(conversations)").fetchall()}
+        if "user_id" not in cols:
+            self._db.execute("ALTER TABLE conversations ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
+        if "chat_type" not in cols:
+            self._db.execute("ALTER TABLE conversations ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''")
+        if "created_at" not in cols:
+            self._db.execute("ALTER TABLE conversations ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
         self._db.commit()
 
     # ---- conversations ----
@@ -90,19 +99,33 @@ class GatewayStore:
             ).fetchone()
         return row[0] if row else None
 
-    def save_session(self, key: ConversationKey, session_id: str, agent_id: str, agent_version: Optional[str] = None) -> None:
+    def save_session(
+        self,
+        key: ConversationKey,
+        session_id: str,
+        agent_id: str,
+        agent_version: Optional[str] = None,
+        *,
+        user_id: str = "",
+        chat_type: str = "",
+    ) -> None:
         with self._lock:
             self._db.execute(
                 """
-                INSERT INTO conversations (conversation_key, session_id, agent_id, agent_version, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO conversations
+                    (conversation_key, session_id, agent_id, agent_version, updated_at, user_id, chat_type, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(conversation_key) DO UPDATE SET
                     session_id = excluded.session_id,
                     agent_id = excluded.agent_id,
                     agent_version = excluded.agent_version,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    user_id = CASE WHEN excluded.user_id != '' THEN excluded.user_id ELSE conversations.user_id END,
+                    chat_type = CASE WHEN excluded.chat_type != '' THEN excluded.chat_type ELSE conversations.chat_type END,
+                    created_at = CASE WHEN conversations.session_id = excluded.session_id
+                                      THEN conversations.created_at ELSE excluded.created_at END
                 """,
-                (self.conversation_key(key), session_id, agent_id, agent_version, _now_iso()),
+                (self.conversation_key(key), session_id, agent_id, agent_version, _now_iso(), user_id, chat_type, _now_iso()),
             )
             self._db.commit()
 
