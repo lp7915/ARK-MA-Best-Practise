@@ -1,16 +1,17 @@
 -- 原子能力注册表 · MySQL 8.0 · utf8mb4
 -- 约定: 所有表 InnoDB; 时间一律 DATETIME(3) UTC; 主键为自增 BIGINT; 对外标识用业务键(atomic_id 等)
 -- 对应文档: ../原子能力注册表设计.md 第 2 节。改动表结构须同步更新该节。
+-- MVP 范围: 本脚本只含 4 张表。审计日志表见 atomic-registry.optional-audit.sql(MVP 不建, 后续按需)。
 -- 校验: 语法已用 sqlglot(mysql 方言)解析通过; 约束与查询逻辑已用等价的 sqlite 夹具验证。
 --       尚未在真实 MySQL 8.0 上执行, 上线前必须在测试库实跑一遍。
 
 -- ============ 1. 原子能力(身份, 不随版本变化) ============
 CREATE TABLE atomic_capability (
   id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  atomic_id     VARCHAR(96)  NOT NULL COMMENT '业务标识 <owner_topic>.<name>, 全局唯一, 创建后不可变',
+  atomic_id     VARCHAR(96)  NOT NULL COMMENT '业务标识 <owner_topic>.<name>; agent 类型为 <业务线>.<数字员工>.<智能体ID>; 全局唯一, 创建后不可变',
   owner_topic   VARCHAR(24)  NOT NULL COMMENT '提供该能力的业务线 ID, 或中台保留标识 platform; 与 atomic_id 前缀一致, 冗余便于查询',
   name          VARCHAR(64)  NOT NULL COMMENT '名称(人读)',
-  type          VARCHAR(16)  NOT NULL COMMENT 'skill|tool|mcp|knowledge|template|prompt',
+  type          VARCHAR(16)  NOT NULL COMMENT 'skill|tool|mcp|knowledge|template|agent; agent=智能体包(main/sub), 仅构建流水线写入',
   team          VARCHAR(64)  NOT NULL COMMENT '提供团队',
   owner_primary VARCHAR(64)  NOT NULL COMMENT '主责任人',
   owner_backup  VARCHAR(64)  NOT NULL COMMENT '备份责任人',
@@ -36,7 +37,7 @@ CREATE TABLE atomic_capability_version (
   ver_patch      INT UNSIGNED NOT NULL,
   fingerprint    CHAR(64)     NOT NULL COMMENT '内容指纹 SHA-256 十六进制',
   address        JSON         NOT NULL COMMENT '能力地址, 结构随 type 不同, 见规范 5.3',
-  depends_on     JSON         NULL COMMENT '[{atomic_id, range}]',
+  depends_on     JSON         NULL COMMENT '[{atomic_id, range, pin?}]; agent 类型=该智能体自己包内引用的能力, 发布时 pin 必填; 不含 main 对 sub 的引用(在 capability_agent_ref)',
   compat         JSON         NULL COMMENT '{ma_toolset, models, ma_docs_snapshot}',
   credentials    JSON         NULL COMMENT '[{kind, purpose}] 只写类型与用途, 不含值',
   changelog      VARCHAR(1024) NOT NULL DEFAULT '',
@@ -64,9 +65,9 @@ ALTER TABLE atomic_capability
 CREATE TABLE capability_agent_ref (
   id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   capability_id  BIGINT UNSIGNED NOT NULL COMMENT '-> atomic_capability.id',
-  topic          VARCHAR(24)  NOT NULL COMMENT '业务线',
+  business_line_id VARCHAR(24) NOT NULL COMMENT '引用方业务线 ID(与 atomic_capability.owner_topic 区分: 后者是提供方)',
   employee       VARCHAR(24)  NOT NULL COMMENT '数字员工',
-  agent_role     VARCHAR(64)  NOT NULL COMMENT 'coordinator 或 subagent:<名称>',
+  agent          VARCHAR(24)  NOT NULL COMMENT '引用方智能体 ID(同一数字员工内唯一)',
   stage          VARCHAR(8)   NOT NULL COMMENT 'dev|staging|prod',
   version_range  VARCHAR(64)  NOT NULL COMMENT '业务方声明的可接受范围, 如 ^1.2.0',
   pinned_version_id BIGINT UNSIGNED NULL COMMENT '当前锁定版本; 声明后尚未发布时为空',
@@ -75,8 +76,8 @@ CREATE TABLE capability_agent_ref (
   created_at     DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at     DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_ref (capability_id, topic, employee, agent_role, stage),
-  KEY idx_agent (topic, employee, agent_role, stage),
+  UNIQUE KEY uk_ref (capability_id, business_line_id, employee, agent, stage),
+  KEY idx_agent (business_line_id, employee, agent, stage),
   KEY idx_pinned (pinned_version_id),
   KEY idx_ma_agent (ma_agent_id),
   CONSTRAINT fk_ref_cap FOREIGN KEY (capability_id) REFERENCES atomic_capability(id),
@@ -97,19 +98,3 @@ CREATE TABLE capability_agent_ref_history (
   KEY idx_ref (ref_id, created_at),
   CONSTRAINT fk_hist_ref FOREIGN KEY (ref_id) REFERENCES capability_agent_ref(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='引用锁定变更历史';
-
--- ============ 5. 变更审计(谁在何时改了什么) ============
-CREATE TABLE registry_audit_log (
-  id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  entity_type  VARCHAR(24)  NOT NULL COMMENT 'capability|version|ref',
-  entity_id    BIGINT UNSIGNED NOT NULL,
-  action       VARCHAR(24)  NOT NULL,
-  before_json  JSON         NULL,
-  after_json   JSON         NULL,
-  operator     VARCHAR(64)  NOT NULL,
-  request_id   VARCHAR(64)  NULL,
-  created_at   DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  PRIMARY KEY (id),
-  KEY idx_entity (entity_type, entity_id, created_at),
-  KEY idx_operator (operator, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='注册表审计日志, 只追加';

@@ -1,6 +1,6 @@
 # MA Agent 搭建映射规范（平台内部）
 
-> 版本：v1.0 · **平台内部文档**，面向中台研发
+> 版本：v1.4 · **平台内部文档**（对应《MA Agent 搭建交付规范》v1.4），面向中台研发
 > **适用范围：** 基于火山方舟 Managed Agents（MA）底座搭建数字员工（Agent）。本文规定：拿到业务方按《MA Agent 搭建交付规范》交付的资源包后，如何校验、如何映射并构建成 MA 上的 Agent、Environment、Vault、Memory Store 等资源；多个业务方共用同一个 MA 项目时如何区分与治理；可复用能力如何注册与升级；如何变更、升级与回滚。
 > 业务方不需要阅读本文。业务方的交付格式见《MA Agent 搭建交付规范》。
 
@@ -59,17 +59,26 @@
 
 | # | 校验 | 依据 |
 |---|---|---|
-| 1 | 路径为 `ma-resources/<业务线ID>/<数字员工ID>/`，两级 ID 合法且与 `registry/employee.json` 一致；`identity/coordinator/identity.md`、`registry/` 存在 | 交付规范第 2 章 |
+| 1 | 路径为 `<业务线ID>/<数字员工ID>/<智能体ID>/`，三级 ID 合法且与 `registry/agent.json` 的 `id` 一致；`identity/identity.md`、`registry/agent.json` 存在 | 交付规范第 2 章 |
 | 2 | 每类信息只在唯一位置，包内无任务、会话、运行编号 | 交付规范第 3 章 |
 | 3 | 全包扫描无密钥明文（包括 `registry/environment.json` 的环境变量） | 交付规范第 8 章 |
 | 4 | `environment.json` 的依赖均带版本下限 | 交付规范 5.3 |
 | 5 | `connections.yaml` 每条写明域名、变量名、提供人，且无凭证值 | 交付规范 5.4 |
 | 6 | 每个记忆库已逐个决策；选可修改的写明内容类型、巡检人、巡检频率与备份来源 | 交付规范 5.5 |
 | 7 | 引用的可复用能力均已登记，版本范围合法 | 交付规范第 6 章 |
-| 8 | 至少 3 个业务验收用例 | 交付规范 9.2 |
+| 8 | `acceptance/cases.yaml` 至少 3 个用例，含 `category`、`route`、`agents`、`input`、`expected`、`acceptor`；覆盖正常、边界、失败或接续；`role: main` 且有引用的含分派用例与误路由反例；`role: sub` 的用例 `route` 均为 `direct` | 交付规范 9.2 |
 | 9 | 提示词文件内标题均从二级开始；`handoff.md` 提到的角色均已定义；同一规则不跨文件重复 | 交付规范 5.1 |
-| 10 | `knowledge.yaml` 合法（目录存在、不越界、不嵌套）；所有逻辑引用可解析；业务文件无运行环境绝对路径 | 交付规范 5.2、本文 6.8 |
-| 11 | 容量：知识文件 ≤ 100 KiB；每个知识目录文件数 ≤ 1,990；长期记忆库单库条目 ≤ 2,000、单条 ≤ 100 KiB；知识目录数 + 长期记忆库数合计 ≤ 10 | 交付规范 5.2、5.5；本文 6.8.3 |
+| 10 | `knowledge.yaml` 合法（目录存在、不越界、不嵌套）；`registry/knowledge.json` 合法（`id` 在注册表中存在且类型为 `knowledge`/`template`、`range` 内有已发布版本、`as` 在包内唯一且不与自有知识目录同名）；所有占位符（`knowledge`、`memory`、`input`、`output`）合法，`knowledge`/`memory` 引用的容器与条目已在同一包内声明或提供；业务文件无运行环境绝对路径 | 交付规范 5.2、5.7、6.3；本文 6.2.3、6.8 |
+| 11 | 容量：知识文件 ≤ 100 KiB；每个知识目录文件数 ≤ 1,990；长期记忆库单库条目 ≤ 2,000、单条 ≤ 100 KiB；知识目录数 + 长期记忆库数合计 ≤ 10（**数值由底座决定，业务方在《容量限制说明》查阅，平台逐项解决后放宽，见 6.8.3**） | 《容量限制说明》；本文 6.8.3 |
+| 12 | 角色与引用（静态检查，层数在交付阶段拦截）：`registry/agent.json` 含 `role`（`main`/`sub`）、`visibility`（`public`/`internal`）；**同一位数字员工里 `role: main` 有且仅有一个**；**仅 `main` 可有 `registry/agents.json`**（引用子智能体，格式 `[{id, range, alias}]`，与 `skills.json` 同构）；`id` 指向同一位数字员工内存在、`role` 为 `sub` 的智能体，`range` 合法且范围内有已发布版本、状态允许当前阶段；**`sub` 不得有 `registry/agents.json`，`main` 不得被引用**（否则超出 MA 一层委派限制）；引用数 ≤ 20；别名在同一 `main` 内唯一；`main` 的提示词（`identity/`）提到了每个别名（只做存在性检查，不改写）；**`role: sub` 的 `visibility` 必须为 `internal`**（`main` 可为 `public` 或 `internal`） | 交付规范 2.3 |
+| 13 | 增量交付：所有智能体包适用同一机制，合并规则见 9.5；`change-set.yaml` 字段合法（`add/update/remove_entries`、`add/update/remove_files`），登记与增量包实际内容一致，`base_version` 为该包最新已发布版本；`role`、`visibility` 变更须显式并重新通过第 12 项 | 交付规范 2.4 |
+| 14 | 基础工具集：智能体的 Agent 定义显式配置基础工具集（6.2.2 第 5 项）；`sub` 的提示词中不含具体的 `main` 或数字员工名称 | 交付规范 2.3 |
+| 15 | 脚本文件名：`skills/**/scripts/` 下的文件名不得含 `_v<数字>`、`-v<数字>`、`_old`、`_new`、`_copy`、`_final`、`_bak` 后缀，出现则阻断退回 | 交付规范 6.6 |
+| 16 | 会话级资源合并（构建一位数字员工时）：把 `main` 与其引用的全部 `sub`（已锁定版本）合并（6.2.4）后无冲突，容量未超限 | 交付规范 2.3 |
+| 17 | 可见范围（`stage: prod` 发布前）：`visibility: internal` 的智能体（所有 `sub`，以及选择 `internal` 的 `main`），其渠道（飞书应用）配置的可用范围白名单**不得为空**（6.7）；`public` 不检查。平台只能检查"非空"，白名单范围是否真的属于内部，需发布评审人工确认 | 交付规范 2.3 |
+| 18 | 包的获取与完整性（**形式检查**，完整包与增量包相同）：压缩包可下载（无需登录）；SHA-256 与提交值一致；解压安全（拒绝 `..`、绝对路径、符号链接）；解压后**唯一顶层** `<business-line-id>/<emp>/<agent>/`，且与文件名 `<business-line-id>-<emp>-<agent>-<version>.zip` 的前三段拼接一致；无密钥与缓存文件；该版本已发布而 SHA-256 不同则退回。取回的压缩包留存 | 交付规范 2.6 |
+| 19 | 版本与身份核对（**内容检查**，对"完整的包"）：完整包——`registry/agent.json` 的 `id` 与顶层目录一致、`version` 与文件名版本一致；增量包——**不要求带 `agent.json`**，先按 9.5 与基线合并成完整包，**对合并后的完整包**做第 1–17 项；增量包自身只核对 `change-set.yaml` 存在、`base_version` 为该智能体最新已发布版本、`new_version` 与文件名版本一致、登记与内容一致。**合并时平台自动把合并后 `agent.json` 的 `version` 回填为 `new_version`**；增量包若带了 `agent.json` 且 `version` 与 `new_version` 不一致则退回 | 交付规范 2.6 |
+| 20 | Skill 脚本运行自包含（静态扫描）：扫描 `skills/**/scripts/` 下脚本，若以 `../`、绝对路径引用了 Skill 目录之外的资源包内容，或读 `registry/`、`io/`、`knowledge/`、其他 Skill 的文件，退回业务方。依据：MA 运行时把每个 Skill 独立挂载到 `/mnt/skills/<skill_name>/`（只读、平级隔离），**不保留资源包布局**，`registry/`、`io/contracts/` 更不是沙箱资源（见第 8 章）。2026-11 实测：脚本用 `Path(__file__).parents[3]` 回溯资源包根寻找 `registry/agent.json`，在 MA 里 `parents[3]` 算出来是 `/mnt`，直接 404 失败 | 交付规范 6.5 |
 
 ---
 
@@ -95,15 +104,16 @@
 
 这三条共同要求：每个资源都要带一个**全局唯一、由平台控制**的标识，这个标识就是业务线 ID。
 
-### 4.2 业务线 ID 与数字员工 ID
+### 4.2 业务线 ID、数字员工 ID 与智能体 ID
 
 | 标识 | 规则 |
 |---|---|
-| 业务线 ID `<topic>` | 小写字母、数字、连字符，3 到 24 位；**由中台统一分配，全局唯一**，分配后不可变更；不得与保留标识 `platform` 重复 |
+| 业务线 ID `<business-line-id>` | 小写字母、数字、连字符，3 到 24 位；**由中台统一分配，全局唯一**，分配后不可变更；不得与保留标识 `platform` 重复 |
 | 数字员工 ID `<emp>` | 小写字母、数字、连字符，3 到 24 位；在业务线内唯一；由业务方提出、中台确认；分配后不可变更 |
-| 资源完整标识 | `<topic>.<emp>.<role>` |
+| 智能体 ID `<agent>` | 小写字母、数字、连字符，3 到 24 位；**在同一位数字员工内唯一**；由业务方提出、中台确认；分配后不可变更 |
+| 智能体完整标识 | `<business-line-id>.<emp>.<agent>`，同时是它在原子能力注册表里的 `atomic_id`（类型 `agent`） |
 
-- `<topic>`、`<emp>` 来自业务交付物的路径 `ma-resources/<业务线ID>/<数字员工ID>/`；
+- `<business-line-id>`、`<emp>`、`<agent>` 来自业务交付物的路径 `<业务线ID>/<数字员工ID>/<智能体ID>/`；
 - **业务线 ID 全局唯一是整个命名与区分机制的前提**：资源名称、Environment 唯一性、元数据校验、产物存储前缀、额度统计，都依赖它；
 - `platform` 为中台保留的业务线 ID，用于中台持有的共享资源（共享原子能力、共享只读记忆库），业务方不得申请；
 - 回收的业务线 ID 永久保留，不重新分配，避免标识复用造成混淆。
@@ -112,13 +122,12 @@
 
 | 资源 | 名称规则 | 示例 |
 |---|---|---|
-| Agent | `<topic>-<emp>-agent` | `sales-assistant-agent` |
-| 子 Agent | `<topic>-<emp>-sub-<name>-agent` | `sales-assistant-sub-cleaner-agent` |
-| Environment | `<topic>-<emp>-env`（**必须唯一**） | `sales-assistant-env` |
-| Vault | `<topic>-<emp>-vault` | `sales-assistant-vault` |
-| Memory Store | `<topic>-<emp>-mem-<purpose>` | `sales-assistant-mem-playbook` |
+| Agent | `<business-line-id>-<emp>-<agent>`（`main` 与 `sub` 同样命名） | `sales-assistant-pm`、`sales-assistant-cleaner` |
+| Environment | `<business-line-id>-<emp>-env`（**必须唯一**，一位数字员工一个，不含智能体 ID） | `sales-assistant-env` |
+| Vault | `<business-line-id>-<emp>-vault` | `sales-assistant-vault` |
+| Memory Store | `<business-line-id>-<emp>-mem-<purpose>` | `sales-assistant-mem-playbook` |
 | Skill 展示名 | `<atomic-id>@<内容指纹前 12 位>` | `sales.report@3a9c1e0b77d2` |
-| Session 标题 | `<topic>/<emp>/<task_id>` | `sales/assistant/T-1024` |
+| Session 标题 | `<business-line-id>/<emp>/<task_id>` | `sales/assistant/T-1024` |
 
 名称仅用于人读。**程序定位一律使用元数据标识加注册表 ID。**
 
@@ -128,18 +137,21 @@
 
 | 键 | 含义 | 示例 |
 |---|---|---|
-| `ma-registry.topic` | 业务线 | `sales` |
+| `ma-registry.business-line-id` | 业务线 ID（与注册表 `business_line_id` 一致） | `sales` |
 | `ma-registry.employee` | 数字员工 | `assistant` |
 | `ma-registry.role` | `agent` / `environment` / `vault` / `memory` / `skill` | `agent` |
 | `ma-registry.owner` | 责任团队（与注册表一致） | `sales-data` |
 | `ma-registry.managed-by` | 创建与维护它的工具或流水线 | `ma-build` |
 | `ma-registry.spec` | 遵循的本规范版本 | `1.0` |
-| `ma-registry.version` | 对应的业务线发布版本 | `1.2.0` |
+| `ma-registry.version` | 对应的包发布版本（每个智能体包独立版本） | `1.2.0` |
 | `ma-registry.stage` | `dev` / `staging` / `prod` | `prod` |
+| `ma-registry.agent` | 仅 Agent 资源：智能体 ID `<agent>` | `cleaner` |
+| `ma-registry.agent-role` | 仅 Agent 资源：`main` / `sub`（来自 `registry/agent.json` 的 `role`） | `sub` |
+| `ma-registry.visibility` | 仅 Agent 资源：`public` / `internal` | `internal` |
 
 规则：
 
-- Agent 同时写入标签 `[{"key":"topic","value":"<topic>"},{"key":"emp","value":"<emp>"}]`，用于 Agent 列表的快速检索；
+- Agent 同时写入标签 `[{"key":"business-line-id","value":"<business-line-id>"},{"key":"emp","value":"<emp>"}]`，用于 Agent 列表的快速检索；
 - **更新元数据必须先读后合并**：更新是整体替换，只传部分键会丢失其余键；
 - 描述（`description`）写人读说明与责任人联系方式，不承载程序依赖的信息；
 - 元数据不得包含凭证、个人信息、业务敏感内容；
@@ -150,10 +162,10 @@
 查找顺序：
 
 1. 注册表中记录的资源 ID（主）；
-2. ID 缺失或失效时，按元数据 `topic` + `employee` + `role` 筛选：Agent、Memory Store 可先用名称服务端过滤缩小范围，其余资源在客户端过滤全量列表；
+2. ID 缺失或失效时，按元数据 `business-line-id` + `employee` + `role` 筛选：Agent、Memory Store 可先用名称服务端过滤缩小范围，其余资源在客户端过滤全量列表；
 3. 命中多个时**停止并报告冲突**，不得自行择一。
 
-写入前必须校验目标资源的元数据 `topic` 属于调用方被授权的业务线，不属于一律拒绝。**不得按名称删除或覆盖资源**，只能按 ID 且校验业务线归属后操作。
+写入前必须校验目标资源的元数据 `business-line-id` 属于调用方被授权的业务线，不属于一律拒绝。**不得按名称删除或覆盖资源**，只能按 ID 且校验业务线归属后操作。
 
 ### 4.6 共享与隔离
 
@@ -175,33 +187,48 @@
 
 **注册表的设计（表结构、状态机、API、升级流程、运维要求）见独立文档《原子能力注册表设计》**，建表脚本见 `registry/atomic-registry.schema.sql`。本章只说明业务线构建流程与注册表的对接点。
 
-### 5.1 业务线怎么用注册表
+### 5.0 谁读、谁写
+
+| 角色 | 权限 | 用途 |
+|---|---|---|
+| 业务方、**分析师研发环境** | **只读查询** | 研发时检索已有能力（标识、类型、描述、适用范围、已发布版本、凭证类型、依赖、是否即将下线），选定后把 `id`、`range` 写进资源包的 `registry/skills.json`、`tools.json`（交付规范 6.4） |
+| 平台同学 / 构建流水线 | 读写 | 登记能力与版本；构建时写入引用与锁定版本；写锁定清单 |
+
+- 分析师研发环境**不写入**引用与锁定：它只产出声明（`id` + `range`，写在使用它的智能体所在的包里），锁定是构建环节的动作，避免研发阶段的试用污染 `prod` 引用；
+- 分析师研发环境读取的是"能力"与"版本"两类信息，只展示 `released` 版本为可选项；`candidate` 标注"仅 dev/staging"，`deprecated` 标注替代版本，`draft`、`retired` 不展示；
+- **当前不开放注册表 API**：分析师研发环境（bot）直接以只读权限读取飞书多维表格《原子能力注册表》的"能力""版本"表，不经过接口；多维表格里只有凭证类型，没有凭证值。正式版 API 上线后再改为调用只读查询接口（见《原子能力注册表设计》）；
+- 因为直接读表，**只读权限必须在表格层面配置**（飞书应用或账号只授予查看权限，不得授予编辑），并限定可读的表与视图；读取到的状态以表中"状态"列为准，bot 须按 5.0 的展示规则自行过滤（只提供已发布版本，`draft`、`retired` 不展示）。
+
+### 5.1 业务线怎么用注册表（MVP）
+
+**MVP 阶段构建流水线暂不与注册表自动对接**，由平台同学按下面的方式手工或脚本调用接口。
 
 | 环节 | 做法 | 对应注册表接口 |
 |---|---|---|
-| 声明引用 | 业务方在 `registry/skills.json`、`tools.json` 中写 `id`、`range`、`used_by` | `PUT /refs` |
-| 解析并锁定 | 构建时为每个 `(智能体, 阶段)` 按 `range` 选最高合法版本并锁定 | `POST /refs:resolve` |
+| 声明引用并锁定 | 读取业务方 `registry/skills.json`、`tools.json`（每个智能体包各自一份）与 `main` 的 `registry/agents.json` 中的 `id`、`range`，为每个 `(智能体, 阶段)` 选定版本，写入引用与锁定版本；`sub` 的包里引用的可复用能力在**该 `sub` 发布时**锁定 | `PUT /refs` |
 | 取回内容 | 按版本的地址下载并校验指纹 | `GET /capabilities/{atomic_id}/versions/{version}` |
-| 写锁定清单 | 回填资源锁定清单（7.5）的 `atomic` 段，**与注册表保持一致** | `GET /agents/{topic}/{employee}/{agent_role}/capabilities` |
-| 升级影响面 | 发布新版本或平台升级时，找出受影响的智能体 | `GET …/versions/{version}/impact` |
-| 回滚 | 引用的锁定版本回退 | `POST /refs/{ref_id}:rollback` |
+| 写锁定清单 | 用已写入的引用回填资源锁定清单（7.5）的 `atomic` 段，**与注册表保持一致** | `GET /refs?business_line_id=…&employee=…&agent=…&stage=…` |
+| 升级影响面 | 发布新版本或平台升级时，找出受影响的智能体 | `GET /refs?atomic_id=…&pinned_version=…&status=active` |
+| 回滚 | 把引用的锁定版本改回旧版本 | `PUT /refs`（`pinned_version` 填旧版本，写明 `reason`） |
+
+按版本范围自动选择最高合法版本、流水线自动对接，属于后续阶段（见《原子能力注册表设计》6.5）。
 
 ### 5.2 构建时的校验
 
-`plan` 阶段必须通过（任一失败即阻断，已列入 7.3）：
+`plan` 阶段必须通过（任一失败即阻断，已列入 7.3）。MVP 阶段这些校验由平台同学在写入引用前核对，自动化在流水线对接后补上：
 
 1. 引用的每个原子能力在注册表中存在；
-2. 版本状态允许当前阶段：`candidate` 只能用于 `dev`、`staging`，不得进入 `prod`；`retired` 不可被新引用；`deprecated` 告警；
+2. 版本状态允许当前阶段：`candidate` 只能用于 `dev`、`staging`，不得进入 `prod`；`retired` 不可被新引用；`deprecated` 告警。其中 `candidate` 进 `prod`、`retired` 被新锁定这两条，**注册表接口本身已强制**；
 3. 版本在 `range` 内、依赖可满足、所需凭证已在 `connections.yaml` 声明、`compat` 与当前 `ma_runtime` 相符；
 4. 资源锁定清单与注册表中的锁定记录一致，不一致视为漂移。
 
 ### 5.3 平台升级时的使用
 
-平台升级（见 9.4）时，先按 `compat` 在注册表中筛选受影响的版本，再用 `impact` 找到受影响的智能体，按 A、B 类变更走完整流程。
+平台升级（见 9.4）时，先按 `compat` 在注册表中筛选受影响的版本，再用 `GET /refs` 按 `atomic_id` 与 `pinned_version` 找到受影响的智能体，按 A、B 类变更走完整流程。
 
 ### 5.4 与业务线标识的关系
 
-原子能力标识 `atomic_id` 形如 `<owner_topic>.<name>`，其中 `<owner_topic>` 是提供该能力的**业务线 ID**，或中台保留的 `platform`（中台持有的共享能力）。业务线 ID 的规则见 4.2；标识的校验规则见《原子能力注册表设计》。
+原子能力标识 `atomic_id` 形如 `<owner_topic>.<name>`，其中 `<owner_topic>` 是提供该能力的**业务线 ID**，或中台保留的 `platform`（中台持有的共享能力）。**`agent` 类型（智能体包）为三段 `<业务线ID>.<数字员工ID>.<智能体ID>`**，且由构建流水线在智能体包发布时**自动录入**（字段映射见《原子能力注册表设计》3.1），不需要业务方单独登记。业务线 ID 的规则见 4.2；标识的校验规则见《原子能力注册表设计》。
 
 ---
 
@@ -211,19 +238,21 @@
 
 | 业务交付物 | MA 资源 | 字段 / 落点 |
 |---|---|---|
-| 路径 `ma-resources/<业务线ID>/<数字员工ID>/` 与 `registry/employee.json` | 清单与元数据 | `manifest.yaml` 的 `topic`、`employee`、`version`、`owner`；资源元数据 `ma-registry.topic`、`employee`、`owner`、`version`。两处必须一致，不一致则退回 |
-| `identity/coordinator/`（身份、编排、交接） | Agent | `system`，按 6.2 严格拼接 |
-| `subagent/<名称>/` | 子 Agent | 每个子智能体生成一个独立 Agent，`system` 拼接规则同上 |
+| 路径 `<业务线ID>/<数字员工ID>/<智能体ID>/` 与 `registry/agent.json` | 清单与元数据 | `manifest.yaml` 的 `business_line_id`、`employee`、`agent`、`role`、`visibility`、`version`、`owner`；资源元数据 `ma-registry.*`。两处必须一致，不一致则退回 |
+| 每个智能体包的 `identity/`（身份、编排、交接） | Agent | **一个智能体包一个 Agent 资源**（`main`、`sub` 同样），`system` 按 6.2.1 严格拼接 |
+| `registry/agent.json` 的 `role`；`registry/agents.json`（仅 `main`） | `main` Agent 的 `multiagent.agents[]` | 见 6.2.2：按 `range` 解析出的确切版本写入；会话级资源合并见 6.2.4 |
+| `registry/agent.json` 的 `visibility` | 元数据与渠道校验 | `ma-registry.visibility`；发布到 prod 时校验渠道白名单（接收校验 17、6.7） |
 | 模型诉求（收集表） | Agent | `model.*`，由中台选型 |
 | `skills/`、引用的 `skill` 类原子能力 | Skill → Agent | Skill 版本 + `skills[]` |
 | 引用的 `mcp` 类原子能力、`connections.yaml` 中 `kind: mcp` | Agent + Vault | `mcp_servers[]` + `tools[] mcp_toolset` + MCP 类凭证 |
 | `tools/` 契约 | 文档 | 实际执行靠 MCP / Skill 脚本 |
 | 业务知识目录（`knowledge.yaml` 声明；默认 `knowledge/`） | 专用知识记忆库（只读） | 见 6.8：**每个已声明的知识目录对应一个知识记忆库**，挂载固定 `read_only`；容量由业务方控制、构建时校验，平台不自动切分或拆库；逻辑引用在构建时替换为自然语言指引加精确位置 |
 | `knowledge.yaml` | 构建输入 | 决定哪些目录进入知识记忆库；不映射为 MA 资源 |
+| `registry/knowledge.json`（共享知识、模板引用） | 知识记忆库（只读） | 按 `id`+`range` 解析出确切版本，取回注册表登记的内容，**写入本数字员工自己的知识记忆库**（不跨数字员工共享），命名与自有知识目录同构；锁定到 `pin`，写入锁定清单（7.5）；计入 L3 名额 |
 | `registry/environment.json` | Environment | `config.packages` / `networking` / `env` / `setup_script` |
 | `connections.yaml` | Vault / Credential | 见 6.4 |
 | `memory/` 与 `memory/stores.yaml` | Memory Store + 会话挂载 | 见 6.5 |
-| `io/contracts/` | 不映射 | 供网关与质检校验 |
+| `io/contracts/` | 不映射为 MA 资源 | **只在验收阶段由平台按契约校验用例的输入与产出**（9.2、10.3）；运行时平台**暂不执行**（调用方、质检由业务方自己实现），**不得向业务方暗示运行时会自动拦截**（交付规范 5.6） |
 | 产物保留诉求（收集表） | 产物存储 | `config.tos`，由中台规划 |
 | 工作空间（任务、运行） | 会话参数 | 见 6.6 |
 
@@ -242,7 +271,7 @@
 
 #### 6.2.1 系统提示词拼接
 
-`system` 由 `identity.md`、`orchestration.md`、`handoff.md` 按**固定顺序**拼接，平台**不改写、不增删、不调整**业务方的文字，只插入三个固定标题：
+`system` 由 `identity.md`、`orchestration.md`、`handoff.md` 按**固定顺序**拼接，平台**不改写、不增删、不调整**业务方的文字（占位符替换除外，见 6.2.3），只插入三个固定标题：
 
 ```text
 # 身份
@@ -261,10 +290,110 @@
 | 标题 | `# 身份`、`# 编排`、`# 交接` 由构建器插入；缺少某个文件时，整段（标题加内容）省略，其余顺序不变 |
 | 分隔 | 段与段之间保留一个空行 |
 | 业务文件内标题 | 必须从二级（`##`）开始；出现一级标题则退回，避免与固定标题冲突 |
-| 子智能体 | `subagent/<名称>/` 下的同名文件按同样规则拼接，生成各自独立的 Agent |
+| 每个智能体 | 各自包内 `identity/` 的同名文件按同样规则拼接，生成该 Agent 自己的提示词；`main` 与 `sub` 的提示词各自独立，不合并 |
 | 逻辑引用 | 拼接前先按 6.8 替换逻辑引用 |
 | 产物 | 拼接后的完整提示词保存为 `identity/system.md` 的构建产物，并提供给业务方确认 |
 | 一致性检查 | 构建时检查：`handoff.md` 提到的角色在 `identity.md` 或 `orchestration.md` 中有定义；同一规则不跨文件重复。发现问题退回，不自动修改 |
+| 增量时的拼接 | 增量交付登记了 `prompt:identity` 时，**用增量给出的全套提示词文件重新拼接**，不从基线补缺文件（否则会出现"基线有、增量没给"的段落静默保留或静默丢失的歧义）；因此业务方必须成套给出（9.5「提示词成套」） |
+
+#### 6.2.2 多智能体：main 与 sub
+
+对应交付规范 2.3。**所有智能体包同构**，一个包对应**一个 MA Agent 资源**；`main` 与 `sub` 的区别只在 `registry/agent.json` 的 `role`、`visibility`，以及是否有 `registry/agents.json`（仅 `main` 有），**在 MA 上都是普通 Agent，规格一致**。
+
+| 项 | 规则 |
+|---|---|
+| 一个包一个 Agent | `main` 与每个 `sub` 各是一个 Agent，独立构建、独立验证、独立发布（独立的版本、锁定清单、验收用例）。`sub` 可以配置自己的调试渠道（飞书应用，6.7），验证后再被 `main` 引用 |
+| 角色约束（静态检查） | `main`：可引用 `sub`，不可被引用；`sub`：不可再引用别的智能体。对应 MA 的"只展开一层"限制（`multiagent` 只展开一层，一个主 Agent 最多 20 个子 Agent）。在**交付阶段**（接收校验 12）拦截，不等运行时 |
+| 归属 | 智能体属于**一位数字员工**，不跨数字员工引用（注册表的 `ref` 只在同一位数字员工内解析）。需要跨员工复用的，登记为可复用能力（Skill、知识等） |
+| 版本对应 | 每个包独立语义化版本；包的每个 `released` 版本对应该 Agent 的一个 MA 版本号，写入注册表版本的 `address`（`ma_agent_id`、`ma_agent_version`，见《原子能力注册表设计》3） |
+| `main` 的引用 | 构建 `main` 时，把 `registry/agents.json` 里每条引用的 `range` 解析为确切版本，写入 `main` 的 `multiagent.agents[]`：`{ "type": "agent", "id": <ma_agent_id>, "version": <ma_agent_version> }`。**版本必须显式写入**（实测：写入后固定，不写时取创建时的最新版并固定） |
+| 创建顺序 | 先创建（或确认已发布）各 `sub`，拿到 ID 与版本，再创建 `main`（实测：子 Agent 与版本须已存在）。与 `topic5/ma-resources/create_all.sh` 一致 |
+| 可见范围 | `sub` 的 `visibility` 固定为 `internal`（接收校验 12），线上用户只通过 `main` 触达；`main` 可为 `public` 或 `internal`。`internal` 的智能体发布到 prod 前检查其渠道白名单非空（接收校验 17）；dev、staging 不限制，便于调试 |
+| `multiagent` 写法 | `type: coordinator`（MA 的字段取值，与业务方的角色命名无关）；写入时整体覆写 `multiagent.agents`；不使用 `type: self` |
+| 字段类型（易踩坑，两处相反） | **`skills[].version` 是字符串**（如 `"1"`）；**`multiagent.agents[].version` 是 int32**（如 `1`）。写反会 400 `InvalidPayload`（`Mismatch type string/int32 with value …`）。两处都可省略（省略=当期最新版，创建后固定），但显式写是对的做法 |
+| 分派规则 | 在 `main` 的 `orchestration.md` 里由业务方书写，用别名称呼 `sub`；平台不生成、不改写（6.2.1） |
+| 命名与元数据 | 命名 `<business-line-id>-<emp>-<agent>`（4.3）；元数据带 `ma-registry.agent`、`agent-role`、`visibility`（4.4） |
+
+**按智能体自己的资源与会话级资源：**
+
+| 资源 | 层级 | 来源 |
+|---|---|---|
+| 提示词、Skill 列表、MCP 与对应工具集、基础工具集 | **Agent 自己** | 来自该智能体自己的包，可复用能力的版本在**该智能体发布时**锁定。整体替换语义，每个 Agent 都写完整数组 |
+| 知识记忆库、长期记忆库、Vault、Environment、TOS 挂载 | **会话级**，不属于某个 Agent | 见 6.2.4：构建数字员工时把主 Agent 与各子 Agent 的声明合并 |
+
+**实测结论与待验证项**（2026-11-09 在 BYOK 模型 `gpt-6.1-sol`、`agent_toolset_20260916` 下实测，探针资源已全部按精确 ID 清理）：
+
+| # | 事项 | 结论 |
+|---|---|---|
+| 1 | BYOK Direct + 主 Agent 带 `multiagent` | **已通过**：主 Agent 创建成功；会话里出现 `session.thread_created`、`agent.thread_message_sent/received`，子 Agent 真实执行了 bash 并回传，主线程汇总。此前的不兼容已不复现 |
+| 2 | 子 Agent 读取会话挂载的记忆库 | **可以**：会话 `resources` 挂 `memory_store`（`read_only`）后，子线程用 `memory_ls`/`memory_tree`/`memory_read` 读到了条目，路径为 `/<记忆库ID>/…`，与主 Agent 一致 |
+| 3 | `environment_variable` 凭证对子 Agent 生效 | **可以**：会话挂 `vault_ids` 后，子线程内的环境变量 `PROBE_SECRET` 与主线程一致（长度相同），经 `curl` 出站时被替换为真实值（对端回显为 `REDACTED`，说明平台脱敏）。**两个线程都读不到明文，只是占位符** |
+| 4 | 子 Agent 与主 Agent 共用沙箱 | **共用**：两线程 `hostname`、PID、`/workspace` 完全相同；主 Agent 写入的 `/workspace/main_marker.txt` 子 Agent 能读到。所以产物与中间文件可以通过 `/workspace` 交接 |
+| 5 | 子 Agent 的基础工具 | **与文档一致**：子 Agent 不配 `tools` 时没有 bash，只有记忆工具、`skill`、`finish`、`view_multimodal`；显式配置 `agent_toolset_20260916` 并 `enabled=true`、`always_allow` 后才有 bash。**所有智能体包（尤其 `sub`）的 Agent 定义必须显式配置基础工具集**（接收校验 14 已要求） |
+| 6 | 子 Agent 版本固定 | **已验证，且必须显式写版本**：子 Agent 更新到 v2 后，`multiagent.agents[].version` 写了 1 的主 Agent，新会话仍然调用 v1（回复 `VERSION-ONE-OK`）；**不写 `version` 时，创建时会自动保存为当时的最新版本（如 2），之后同样固定**（新会话调用 v2）。结论：版本一经写入就固定，子 Agent 发布新版本**不会**改变已创建的主 Agent；要纳入新版本，必须更新主 Agent（生成新版本）。构建器应显式写入 `ref` 解析出的版本，不依赖"省略即最新" |
+| 7 | MCP 凭据（`static_bearer`/`mcp_static`/`mcp_oauth`）对子线程生效 | **未测**：没有可用的公网 MCP 服务（凭证创建时要握手）。文档称 Vault 凭据**按线程**生效、按 `mcp_server_url` 匹配；子 Agent 自己声明的 MCP 才会用到。需要一个可握手的 MCP 再测 |
+| 8 | 同级子 Agent 间路由、并发 | 未测，当前设计不依赖（只用主 → 子一层） |
+| 9 | 更新主 Agent 不影响已有会话 | 已有文档依据，本次未专门测 |
+| 10 | 主 Agent 创建时校验子 Agent | 子 Agent 须已存在且版本存在，才能创建主 Agent；顺序为先子后主（与仓库 `create_all.sh` 一致） |
+
+补充观察：
+- 委派的**触发靠主 Agent 的提示词**：主 Agent 按提示词决定是否委派、怎么向子 Agent 描述任务，子 Agent 看到的是主 Agent 改写后的任务描述，不是用户原话；
+- 子线程的事件在主会话事件流里只有 `thread_created`、`thread_message_sent/received`，**子线程内部的 `tool_use`/`tool_result` 要单独查询** `GET /sessions/{id}/threads/{thread_id}/events`（观测要做这一步）；
+- 创建会话时只传主 Agent 的 ID，子 Agent 由 `multiagent` 自动展开为线程。
+
+因此交付规范 2.3 承诺"每个智能体包独立发布、`main` 按版本引用 `sub`；会话级资源合并后整位数字员工共享；不做按智能体的隔离"。实测印证了这一点：记忆库、`environment_variable` 凭证、沙箱与文件系统在主、子线程间**都是共享的**，没有任何隔离。
+
+#### 6.2.4 会话级资源的合并
+
+构建一位数字员工时，对**它的 `main` 包和所有被 `main` 引用的 `sub` 包（已锁定版本）**声明的会话级资源做合并，作为同一次会话的资源。输入是各包的 `knowledge.yaml`、`memory/stores.yaml`、`connections.yaml`、`registry/environment.json`；每项都记录**所属智能体**（`owner`：智能体 ID）。
+
+| 资源 | 合并规则 |
+|---|---|
+| 知识记忆库 | 并集。每个已声明的知识目录**以及每个 `registry/knowledge.json` 引用的共享知识**各一个库（共享知识的内容取自注册表该版本的 `address`，按 `as` 命名，作用与自有知识目录一致，映射表标注 `source: registry:<atomic_id>@<pin>`），同名目录各自成库；命名 `<business-line-id>-<emp>-mem-knowledge-<序号>`，**序号在数字员工内统一分配（先 `main`，再按 `registry/agents.json` 的声明顺序），首次分配后固定**（沿用 6.8.2）。映射表（6.8.4）增加 `owner`，记录库属于哪个智能体 |
+| 长期记忆库 | 并集。命名 `<business-line-id>-<emp>-mem-<owner>-<purpose>`（`<owner>` 为所属智能体 ID）；同名不合并；各库按自己包里的 `access` 挂载 |
+| Vault 凭证 | 并集。`secret_name`、`hosts`、`kind` 全部相同的合并为一条；`secret_name` 相同但 `hosts` 或 `kind` 不同，阻断；MCP 类按 `mcp_server_url` 去重，同一 Vault 内必须唯一（6.4） |
+| Environment | 各包的依赖合并为一份：同一个包出现多个版本要求时必须自洽，不自洽阻断，**错误指出冲突的两个包与包名、版本要求**；`env`、`setup_script` 同名冲突同样阻断 |
+| 提示词中的占位符 | 按**所在包**解析（含该包 `knowledge.json` 的 `as` 目录）：每个智能体的 `{{knowledge:…}}`、`{{memory:…}}` 只能引用自己包里声明的容器与已提供的条目，替换时用映射表中该库的 ID 和路径 |
+
+合并后再做数量与容量校验（7.3 第 8 项）：**会话记忆库总数（所有智能体的知识库加长期记忆库）、Vault 凭证数等按合并后的总数计算**，不是按单个包计算。被引用的 `sub` 越多，越容易触及 10 个记忆库的会话上限，`plan` 报告须列出各包的占用。
+
+知识与记忆**属于一位数字员工**：智能体不跨数字员工引用（接收校验 12），因此记忆库也不跨数字员工共享（与 4.6 一致）。
+
+合并产物写入构建目录 `memory/knowledge.map.json`、`vault/credentials.spec.yaml`、`environment/environment.json`，并在 `plan` 报告中列出每项资源的来源包。
+
+#### 6.2.3 提示词占位符的解析
+
+对应交付规范 5.7。业务提示词不得写运行环境路径或资源编号，引用知识、记忆，以及输入、产物位置，一律用占位符，构建器在拼接前统一解析。**当前支持四个占位符**（`knowledge`、`memory` 带参数，`input`、`output` 不带参数）：
+
+| 占位符 | 来源与校验 | 替换结果 |
+|---|---|---|
+| `{{knowledge:目录/路径}}` | 6.8.5；文件须存在于已声明知识目录，且该目录已挂载到当前智能体 | `/<记忆库ID>/<条目路径>`，附"使用记忆工具读取"（知识库固定只读） |
+| `{{input}}` | 无参数；输入资料目录（只读） | `/mnt/session/uploads/`。**已实测（2026-11-10）**：会话 `resources` 里 `type: file` 的文件按 `mount_path`（**相对路径**，不得以 `/` 开头，传绝对路径会被放进怪异位置）挂到 `/mnt/session/uploads/<mount_path>`，目录**只读**（写入被拒）；TOS 挂载（`type: tos`）是另一个位置 `/mnt/session/storage/`，当前 `{{input}}` 只指 `uploads`，TOS 挂载位置由调用方在任务说明里指明 |
+| `{{output}}` | 无参数；正式产物目录（可写） | `/mnt/session/outputs/`。**已实测（2026-11-10）**：可写，写入的文件会出现在会话的 files API（`purpose=agent`，带下载链接）；是否长期保留取决于产物存储配置（6.6），未配置则按平台默认保留期清理（实测文件 `expire_at` 约 7 天后） |
+| `{{memory:库名/条目路径}}` | 与 `{{knowledge:…}}` **同构**：库在同一包的 `memory/stores.yaml` 中声明；条目路径须存在于该库在包里提供的初始条目中；仅声明一个库时库名可省略，多库必须带库名；多个库同名相对路径必须带库名 | `/<记忆库ID>/<条目路径>`，附"使用记忆工具读取"（`read_only`）或"读写"（`read_write`） |
+
+**共同原理与对称性：** `knowledge`、`memory` 两个占位符都是"容器名/相对路径"，容器分别是知识目录和记忆库，解析、校验、省略规则完全一致（交付规范 5.7）。不提供"指向整个记忆库"的写法，与知识没有对应形态。知识库与长期记忆库在 MA 上同为 Memory Store，智能体只能用记忆工具按路径访问（根为 `/`，第一段是记忆库 ID，见 6.8.1），不能用文件系统路径。ID 创建后才产生，因此一律由构建器写入路径；两类库的差别只在挂载权限与管理方（知识库只读、平台管理；长期记忆库由业务方决策）。替换结果只写路径与"读/读写"，**不写死具体工具名**（6.8.5）。
+
+规则：
+
+- 替换在 6.2.1 拼接之前、对每个智能体分别进行；知识文件中解析 `{{knowledge:…}}` 与 `{{memory:…}}`，`{{input}}`、`{{output}}` 只允许出现在提示词里；
+- `{{input}}`、`{{output}}` 的值对整个会话唯一，`main` 与 `sub` 共享同一对目录（已实测同沙箱）；构建器在构建产物（`session.yaml`）里记录这两个路径，回执单列；
+- **除上表外不得出现 `{{`**：未知占位符、容器或条目不存在、容器不在当前智能体的包里，一律阻断退回；替换后文本不再含 `{{`；
+- **运行中才写入的记忆条目不可引用**：占位符只校验包里已提供的条目（长期记忆的初始条目在 `memory/<库>/` 下）；运行时由智能体写入的条目包里没有，校验不通过，业务方应改用自然语言描述；
+- 记忆库 ID 只在构建时生成，写入构建产物与锁定清单，不回写业务源；
+- 业务文件内直接出现 `/mnt/`、`/workspace/` 开头的路径，阻断退回（接收校验 10）；
+- **业务原文除占位符外不改写**，6.2.1 的"不改写、不增删"保持成立；平台不追加独立的"运行环境"段落；
+- 回执分开列出：业务原文、每个占位符的替换结果、完整系统提示词。
+
+**暂不支持的占位符（候选，实测后再决定是否加入；`input`、`output` 已于 2026-11-10 实测转正）：**
+
+| 候选 | 替换目标 | 阻塞点（待实测） |
+|---|---|---|
+| `{{skill:名称}}` | Skill 在 MA 上的名称 | 智能体实际如何识别 Skill 名称未实测 |
+| `{{tool:名称}}` | MCP 服务名 | 无明显阻塞，需求明确后可加入 |
+| `{{agent:名称}}` | 子 Agent 的 MA 名称（4.3 命名） | 主 Agent 如何按名称指定委派对象未实测；BYOK + multiagent 复测时一并验证 |
+
+在这些加入前，业务方用自然语言描述（"用户提供的资料""交给热点分析子智能体"），平台不做替换，也不校验。需要注意：自然语言里的子智能体别名与 MA 上的 Agent 名称（`<business-line-id>-agent-<子智能体ID>`）不同，是否影响委派需在复测时确认。
 
 **模型字段：**
 
@@ -289,7 +418,7 @@
 | `env_vars[]` | `config.env` | 只允许非敏感配置，构建时再次扫描 |
 | `runtime.max_task_minutes` | 会话等待上限（网关） | 不写入 Environment |
 
-名称 `<topic>-<emp>-env`，**项目内唯一**。**Key、Secret、Token、密码一律不得进入 `env`。**
+名称 `<business-line-id>-<emp>-env`，**项目内唯一**。**Key、Secret、Token、密码一律不得进入 `env`。**
 
 ### 6.4 Vault 与凭证
 
@@ -298,6 +427,7 @@
 | 业务 `kind` | MA 凭证类型 | 说明 |
 |---|---|---|
 | `mcp` | `static_bearer` / `mcp_static` / `mcp_oauth` | 创建时立即与 MCP 服务握手，服务不可达则创建失败；按服务鉴权方式选类型 |
+| 业务 `mcp.*` | 凭证类型与 Agent 的 `mcp_servers[]` | `mcp.url` 写入 Agent 的 `mcp_servers[]`（`type: url`，`name` 建议主动填写 `[a-z0-9_-]{1,64}`；MA 无"协议"字段）；`mcp.auth: api_key` 且 `key_injection: bearer` → `static_bearer`；`header`/`query` → `mcp_static`（`injection_type`、`injection_name`）；`oauth` → `mcp_oauth`；`none` → 不建凭证。凭证的 `mcp_server_url` 须与 `mcp.url` 一致才能匹配。`oauth.client_auth` 对应 `refresh.token_endpoint_auth.type`（`none`/`client_secret_basic`/`client_secret_post`）；`client_id`、客户端密钥、刷新令牌由提供人单独交付，不进资源包 |
 | `api_key` | `environment_variable` | 沙箱内是不透明占位符，**出站时**替换为真实值，Agent 看不到密钥；业务方不区分用于接口、命令行还是 SDK，平台统一按同一方式处理 |
 | `oauth_token` | `env_oauth` | 带自动刷新时须同时提供过期时间与完整刷新信息 |
 
@@ -329,7 +459,7 @@
 
 | 业务字段 | MA 落点 | 规则 |
 |---|---|---|
-| `name` | Memory Store 名称 `<topic>-<emp>-mem-<purpose>` | 按 4.3；`knowledge-<目录序号>` 为知识记忆库保留，业务长期记忆库不得使用 |
+| `name` | Memory Store 名称 `<business-line-id>-<emp>-mem-<purpose>` | 按 4.3；`knowledge-<目录序号>` 为知识记忆库保留，业务长期记忆库不得使用 |
 | 条目文件 | 记忆条目，路径即记忆路径 | 单条不超过 100 KiB；单个库不超过 2,000 条。**长期记忆库与知识记忆库的此上限均由业务方控制，平台在构建时校验，不自动处理**（见 6.8.3） |
 | `access` | 会话挂载的 `access` | **逐个记忆库**；未配置的一律按 `read_only` |
 | `maintainer`、`purpose` | 注册表（记忆库责任人与用途） | 必填 |
@@ -342,7 +472,7 @@
 - 选读写的，须登记写入内容类型、巡检人、巡检频率与备份来源，因为智能体处理的不可信内容可能被写入，并在后续会话中被当作可信信息读取；巡检是**事后**手段；
 - **内容摘要基线（平台内部措施）**：对 `read_write` 的记忆库，构建器在每次构建与每次发布时，记录该库全部条目的路径与内容摘要，保存为基线（`memory/baseline/<库名>.json`，不含条目正文）。该基线供巡检比对使用：与当前库内容比较，找出新增、被改动、被删除的条目。这是平台为弥补 MA 无版本回溯而做的补偿，**不改变 MA 的行为，也不拦截写入**；基线只能发现变化，不能还原内容，还原依赖 `backup_source`；
 - 提示词里"不要写入"只是文字约束，**平台不会据此拦截**，权限以挂载设置为准；
-- 单个会话最多挂载 10 个库；**该上限由知识记忆库与业务长期记忆库共用，合计不超过 10**（见 6.8.3）；该数字已明确告知业务方（交付规范 5.2）；
+- 单个会话最多挂载 10 个库；**该上限由知识记忆库与业务长期记忆库共用，合计不超过 10**（见 6.8.3）；该数字已明确告知业务方（《容量限制说明》）；
 - **知识与长期记忆是两类不同的库，构建时分别建库，不合并**：知识记忆库由平台管理、固定 `read_only`，不由业务方决策权限；长期记忆库由业务方决策读写（`purpose` 不得使用 `knowledge`）；
 - 跨业务方共享见 4.6。
 
@@ -356,7 +486,7 @@
 | Vault | `vault_ids` |
 | Agent 版本 | 灰度、复现、审计时固定版本 |
 | 产物存储 | 创建会话时通过环境覆写 `config.tos` |
-| 标题 | `<topic>/<emp>/<task_id>`，便于检索与审计 |
+| 标题 | `<business-line-id>/<emp>/<task_id>`，便于检索与审计 |
 
 **TOS 挂载与产物存储是两个独立配置：**
 
@@ -378,7 +508,7 @@ TOS 挂载规则：
 - 交付物需要长期保存的，**必须配置产物存储**；否则落在平台公共存储，到期被清理；
 - 优先在创建会话时覆写，不修改可复用的 Environment；
 - `bucket` 与 `prefix` 必须同时提供，`prefix` 以 `/` 结尾；
-- **多业务方共用同一个桶时，前缀必须包含业务线 ID**：`<topic>/<emp>/`，由中台统一规划；
+- **多业务方共用同一个桶时，前缀必须包含业务线 ID**：`<business-line-id>/<emp>/`，由中台统一规划；
 - 写入前缀为 `{prefix}outputs/{env-id}/{session-id}/`；删除会话不会删除桶中对象，生命周期在对象存储中管理。
 
 ### 6.7 网关与渠道（MA 之外）
@@ -386,8 +516,9 @@ TOS 挂载规则：
 | 要点 | 规则 |
 |---|---|
 | 入口 | 单聊、群聊（群聊须 @ 机器人） |
-| 可用范围 | 白名单，留空表示不限 |
-| 飞书应用 | 一位数字员工一个应用；权限与事件订阅登记在渠道清单；需订阅长连接接收消息事件，创建版本并发布后生效 |
+| 可用范围 | 白名单，留空表示不限。**`visibility: internal` 的智能体（所有 `sub`，以及选择 `internal` 的 `main`）在生产环境，白名单不得为空**（接收校验 17，发布前检查）；`public` 不限制 |
+| 飞书应用 | **每个需要对话入口的智能体各一个应用**（对外的 `main` 一个；`sub` 需要独立调试时可以有自己的调试应用）；权限与事件订阅登记在渠道清单；需订阅长连接接收消息事件，创建版本并发布后生效 |
+| 可见范围的落地 | `public` 的 `main` 的应用面向用户；`internal` 的 `main` 的应用白名单限定为内部指定人群；`sub`（一定是 `internal`）的调试应用在 dev、staging 可以自由使用，**生产环境要么不创建应用，要么白名单限定为研发人员**；用户只通过 `main` 触达 `sub` |
 | 模型鉴权 | 只登记 Header 名与持有人 |
 | 会话映射 | 以（会话域、话题、用户）为键，保存会话 ID 与所用版本快照，不含凭证 |
 
@@ -413,7 +544,7 @@ MA 没有"知识库"的概念。当前决定：**业务知识映射到专用的�
 | 步骤 | 规则 |
 |---|---|
 | 范围 | 只处理 `knowledge.yaml` 声明的目录；未声明时默认 `knowledge/`；未声明的目录不进入知识库 |
-| 对应关系 | **一个已声明的知识目录对应一个知识记忆库**，命名 `<topic>-<emp>-mem-knowledge-<目录序号>`。**序号在首次构建时按声明顺序分配并记录在映射表中，此后固定不变**：调整 `knowledge.yaml` 中的声明顺序不改变序号，删除目录不回收序号，新增目录取下一个未用序号；否则调整顺序会让记忆库名称与映射表错位 |
+| 对应关系 | **一个已声明的知识目录对应一个知识记忆库**，命名 `<business-line-id>-<emp>-mem-knowledge-<目录序号>`。**序号在首次构建时按声明顺序分配并记录在映射表中，此后固定不变**：调整 `knowledge.yaml` 中的声明顺序不改变序号，删除目录不回收序号，新增目录取下一个未用序号；否则调整顺序会让记忆库名称与映射表错位 |
 | 文件类型 | `.md`、`.txt`；其他类型阻断并退回 |
 | 条目路径 | 条目路径为文件在该知识目录内的相对路径，例如 `/统计口径.md`。因为每个目录对应独立的记忆库，路径中**不再保留目录名**；同名相对路径出现在不同目录时互不冲突，由记忆库区分 |
 | 条目内容 | 文件原文，不改写；文件头的"名称、适用范围、版本、负责人"原样保留 |
@@ -421,9 +552,13 @@ MA 没有"知识库"的概念。当前决定：**业务知识映射到专用的�
 | 挂载 | 固定 `read_only`，显式下发 |
 | 变更 | 知识变动只需更新记忆库条目，**即时生效，不需要升级会话**；条目新增、删除、移动须同步更新索引与映射表（6.8.4） |
 
-#### 6.8.3 容量：业务方控制，构建时校验
+#### 6.8.3 容量：当前校验与平台侧解决计划
 
-平台**不自动切分文件，不自动拆分目录或记忆库**。容量由业务方在交付时控制，构建时严格校验，超限则失败并退回。
+> **口径变化：** 业务方反馈这些上限不应成为业务设计约束。当前决定：**这些限制记录在独立的《MA Agent 搭建容量限制说明》（交付规范附录引用），由平台逐项以对业务方透明的方式解决**；业务方交付物格式与逻辑引用写法不变。解决前，本节的校验继续生效；某项解决后，调整本节校验，并更新容量限制说明的状态。
+>
+> 平台侧方向（待评估，不是承诺）：单文件透明分片（映射表一个源文件对应多个条目，逻辑引用仍指向源文件）；目录文件数超限时透明分库（映射表一个源目录对应多个记忆库，6.8.2 的"一目录一库"改为"一目录一到多库"）；合计 10 个挂载上限需评估其他承载方式。注意逻辑引用替换、索引、增量更新都依赖映射表（6.8.4），这几项改造集中在映射表与索引生成。
+
+平台**暂不自动切分文件，不自动拆分目录或记忆库**。解决前，容量由业务方在交付时控制，构建时严格校验，超限则失败并退回。
 
 | 限制 | 数值 | 来源 | 校验方式 |
 |---|---|---|---|
@@ -431,11 +566,11 @@ MA 没有"知识库"的概念。当前决定：**业务知识映射到专用的�
 | 单个知识目录的文件总数 | 不超过 **1,990** | MA 单个记忆库 2,000 条上限，扣除索引 1 条，并预留 9 条余量 | 递归统计目录内全部文件数 |
 | 知识记忆库数 + 业务长期记忆库数 | 合计不超过 **10** | MA 单个会话最多挂载 10 个记忆库 | 统计两类库的总数 |
 
-校验失败时，错误必须包含：超限项、实际值、限制值、涉及的文件或目录，以及处理指引（引导业务方按知识的主题粒度调整，见交付规范 5.2）。例如：
+校验失败时，错误必须包含：超限项、实际值、限制值、涉及的文件或目录，以及处理指引（引导业务方按知识的主题粒度调整，见《容量限制说明》）。例如：
 
 ```text
 知识目录 "业务口径" 文件数 2,013，超过上限 1,990。
-请按主题划分为多个知识目录并在 knowledge.yaml 中分别声明，参见《MA Agent 搭建交付规范》5.2。
+请按主题划分为多个知识目录并在 knowledge.yaml 中分别声明，参见《MA Agent 搭建容量限制说明》。
 ```
 
 **拆分不要求说明，只做一致性检查：**
@@ -447,9 +582,9 @@ MA 没有"知识库"的概念。当前决定：**业务知识映射到专用的�
 
 **名额的计算：**
 
-- 业务方交付的知识目录数加上长期记忆库数，合计不得超过 10，这个数字已在交付规范 5.2 明确告知业务方；
+- 业务方交付的知识目录数加上长期记忆库数，合计不得超过 10，这个数字已在《容量限制说明》明确告知业务方；
 - 每个已声明的知识目录占 1 个名额，每个长期记忆库占 1 个名额；
-- 合计超过 10 时阻断并退回业务方，错误里列出两类库各自的数量与清单，引导业务方合并主题相近的目录（见交付规范 5.2）；
+- 合计超过 10 时阻断并退回业务方，错误里列出两类库各自的数量与清单，引导业务方合并主题相近的目录（见《容量限制说明》）；
 - 业务方确实需要超过 10 个的，属于平台容量问题，由中台评估（例如改用其他承载方式），**不能通过放宽校验绕过**。
 
 **增量更新时的容量：**
@@ -464,14 +599,14 @@ MA 没有"知识库"的概念。当前决定：**业务知识映射到专用的�
 ```json
 {
   "stores": [
-    { "name": "<topic>-<emp>-mem-knowledge-01", "id": "memstore-…", "source_root": "业务口径", "entries": 118 }
+    { "name": "<business-line-id>-<emp>-mem-knowledge-01", "id": "memstore-…", "source_root": "业务口径", "entries": 118 }
   ],
   "files": [
     {
       "source": "业务口径/统计口径.md",
       "sha256": "…",
       "entries": [
-        { "store": "<topic>-<emp>-mem-knowledge-01", "path": "/统计口径.md" }
+        { "store": "<business-line-id>-<emp>-mem-knowledge-01", "path": "/统计口径.md" }
       ]
     }
   ]
@@ -494,13 +629,13 @@ MA 没有"知识库"的概念。当前决定：**业务知识映射到专用的�
 引用的第一级是知识目录名（仅声明了一个知识目录时可省略），构建器据此找到对应的知识记忆库，根据映射表替换为**自然语言指引加精确位置**，替换后不再保留逻辑引用标记：
 
 ```text
-（使用记忆工具查阅记忆库 <记忆库ID> 中的 /统计口径.md）
+/<记忆库ID>/统计口径.md（使用记忆工具读取）
 ```
 
 | 情形 | 替换结果 |
 |---|---|
-| 单个知识目录 | `（使用记忆工具查阅记忆库 <ID> 中的 <条目路径>）` |
-| 多个知识目录 | 通过引用中的目录名确定记忆库，同样输出 `（使用记忆工具查阅记忆库 <该目录对应ID> 中的 <条目路径>）` |
+| 单个知识目录 | `/<ID>/<条目路径>（使用记忆工具读取）` |
+| 多个知识目录 | 通过引用中的目录名确定记忆库，同样输出 `/<该目录对应ID>/<条目路径>（使用记忆工具读取）` |
 | 一个文件对应的是业务方拆分后的多个文件 | 业务方在提示词里分别引用各文件，构建器逐个替换，不自动合并 |
 
 - **不写死工具名**（`memory_read` 等）：工具名属于平台，可能变化；指引只说"使用记忆工具"，由模型选择具体工具；
@@ -527,47 +662,55 @@ MA 没有"知识库"的概念。当前决定：**业务知识映射到专用的�
 
 ### 7.1 构建目录
 
-交付物是业务信息；构建产物是把它编译成 MA 资源所需的声明：
+交付物是业务信息；构建产物是把它编译成 MA 资源所需的声明。**Agent 级的产物按智能体各一份，会话级的产物（Environment、Vault、记忆、会话）按数字员工一份**：
 
 ```text
-ma-build/<topic>/<emp>/
+ma-build/<business-line-id>/<emp>/
 ├── README.md
 ├── registry/
-│   ├── manifest.yaml             # 主清单
-│   ├── resources.lock.json       # 资源锁定清单（7.5）
+│   ├── manifest.yaml             # 数字员工主清单（7.2）：main、sub 引用、版本
+│   ├── resources.lock.json       # 数字员工资源锁定清单（7.5）
 │   ├── version_mapping.md
 │   └── CHANGELOG.md
-├── identity/
-│   ├── agent.json                # 由交付物 identity/coordinator/ 编译
-│   ├── system.md                 # 按 6.2.1 拼接的完整提示词，供业务方确认
-│   └── subagents/<名称>/         # 每个子智能体一份 agent.json 与 system.md
+├── agents/<agent>/               # 每个智能体一份（main、sub 同构）
+│   ├── agent.json                # 由该包 identity/ 与 registry/agent.json 编译
+│   ├── system.md                 # 按 6.2.1 拼接、6.2.3 替换占位符后的完整提示词，供业务方确认
+│   ├── resources.lock.json       # 该智能体自己的锁定清单：提示词摘要、MA Agent ID 与版本、引用的可复用能力的确切版本
+│   └── verification/{smoke.md, acceptance.md}   # 该智能体自己的冒烟与验收（由其 acceptance/cases.yaml 整理，回执写入每个用例的结论）
 ├── environment/
-│   ├── environment.json          # 由 registry/environment.json 编译
+│   ├── environment.json          # 各包 registry/environment.json 合并后编译（6.2.4）
 │   └── setup.sh
 ├── vault/
-│   └── credentials.spec.yaml     # 由 connections.yaml 编译；无值
+│   └── credentials.spec.yaml     # 各包 connections.yaml 合并后编译；无值
 ├── memory/                       # 设置记忆时才有
 │   ├── memory-store.json
-│   ├── knowledge.map.json        # 知识映射表（6.8.4）
+│   ├── knowledge.map.json        # 知识映射表（6.8.4），含各库所属智能体
 │   ├── baseline/<库名>.json      # 可写记忆库的内容摘要基线（6.5），无正文
 │   └── <路径>/*.md
 ├── session/
 │   └── session.yaml              # 挂载、权限、产物存储
 ├── channel/
-│   ├── channels.yaml
+│   ├── channels.yaml             # 每个智能体可有自己的渠道；含 visibility 对应的可用范围（6.7）
 │   └── gateway.env.example
 └── verification/
-    ├── smoke.md
-    └── acceptance.md             # 由业务验收用例整理
+    └── integration.md            # main 的集成验收（分派用例等）
 ```
+
+#### 7.1.1 单个智能体的独立构建与验证
+
+一个智能体包可以**脱离其他智能体**独立构建、验证、发布（发布得到该智能体的新版本，登记进注册表）：
+
+- 独立验证时，用一个临时的最小会话直接调用该 Agent，只挂它自己声明的会话级资源（它自己的记忆库、Vault、Environment），不依赖任何 `main`；`sub` 可以配置自己的调试渠道，在开发、测试阶段用它对话调试；
+- 临时资源按 10.1 第 9 条登记并按精确 ID 清理；
+- 智能体发布后，`main` 引用它的某个版本，构建 `main` 时才做会话级资源合并（6.2.4）和集成验收。
 
 ### 7.2 主清单
 
 ```yaml
 spec_version: 1
-topic: <topic>
+business_line_id: <business-line-id>
 employee: <emp>
-version: 1.0.0
+version: 1.0.0                    # main 的版本
 owner: { team: "", primary: "", backup: "" }
 
 ma_runtime:
@@ -579,15 +722,16 @@ ma_runtime:
 
 stage: dev                        # dev | staging | prod
 
-resources:
-  agent:       { name: <topic>-<emp>-agent,  file: identity/agent.json }
-  environment: { name: <topic>-<emp>-env,    file: environment/environment.json }
-  vault:       { name: <topic>-<emp>-vault,  spec: vault/credentials.spec.yaml }
-  memory:      []                  # 例：[{ name: <topic>-<emp>-mem-<purpose>, access: read_only }]
-  session:     { file: session/session.yaml }
+agents:
+  main: { agent: pm, role: main, visibility: public, file: agents/pm/agent.json }
+  subs:                           # 来自 main 的 registry/agents.json；每项固定到一个确切版本
+    - { alias: hotspot, agent: hotspot, role: sub, visibility: internal, range: "^1.0.0", pin: "1.0.3", file: agents/hotspot/agent.json }
 
-atomic_refs:
-  - { id: platform.report-cover, range: "^1.2.0", used_by: [coordinator, "subagent:cleaner"] }
+resources:                        # 会话级资源：按数字员工一份，合并自 main 与全部 sub（6.2.4）
+  environment: { name: <business-line-id>-<emp>-env,    file: environment/environment.json }
+  vault:       { name: <business-line-id>-<emp>-vault,  spec: vault/credentials.spec.yaml }
+  memory:      []                  # 例：[{ name: <business-line-id>-<emp>-mem-<owner>-<purpose>, access: read_only }]
+  session:     { file: session/session.yaml }
 ```
 
 ### 7.3 编译与校验
@@ -595,13 +739,13 @@ atomic_refs:
 `plan` 阶段必须通过以下校验，任一失败即阻断：
 
 1. **接收校验**：第 3 章全部通过；
-2. **业务线标识**：所有资源名称、元数据、标题中的 `<topic>`、`<emp>` 与交付路径一致，且 `<topic>` 属于调用方被授权的业务线；
+2. **业务线标识**：所有资源名称、元数据、标题中的 `<business-line-id>`、`<emp>` 与交付路径一致，且 `<business-line-id>` 属于调用方被授权的业务线；
 3. **唯一性**：Environment 名称在项目内无冲突；元数据标识下同角色资源无多个命中；
 4. **引用**：每个原子能力存在、状态允许当前 `stage`、版本在 `range` 内、依赖可满足、所需凭证已在 `connections.yaml` 声明；
 5. **兼容**：原子能力的 `compat` 与当前 `ma_runtime` 相符；
 6. **凭证**：构建产物与环境变量中无密钥明文；每条凭证的域名已逐个列出；
 7. **记忆**：每个挂载的记忆库权限已显式声明；
-8. **数量**：未超平台上限（Skill 50、工具 128、环境变量 64、Vault 凭证 100、会话文件 10）；**会话记忆库（知识记忆库加长期记忆库）合计不超过 10**；知识文件 ≤ 100 KiB、单个知识目录文件数 ≤ 1,990，任一超出阻断并退回业务方（见 6.8.3）。
+8. **数量与多智能体**：`agents.json` 引用合法；以下数量均按 6.2.4 **合并后的总数**计算，未超平台上限（Skill 50、工具 128、环境变量 64、Vault 凭证 100、会话文件 10）；**会话记忆库（知识记忆库加长期记忆库）合计不超过 10**；知识文件 ≤ 100 KiB、单个知识目录文件数 ≤ 1,990，任一超出阻断并退回业务方（见 6.8.3）。
 
 ### 7.4 版本固定
 
@@ -613,26 +757,28 @@ atomic_refs:
 
 ```json
 {
-  "topic": "<topic>", "employee": "<emp>", "version": "1.0.0", "stage": "prod",
+  "business_line_id": "<business-line-id>", "employee": "<emp>", "version": "1.0.0", "stage": "prod",
   "ma_runtime": { "docs_snapshot": "YYYY-MM-DD", "toolset_type": "agent_toolset_20260916" },
   "agents": [
-    { "role": "coordinator",      "id": "agent-…", "version": 3, "system_sha256": "…", "model_fp": "…" },
-    { "role": "subagent:cleaner", "id": "agent-…", "version": 1, "system_sha256": "…", "model_fp": "…" }
+    { "agent": "pm", "role": "main", "id": "agent-…", "version": 3, "system_sha256": "…", "model_fp": "…" },
+    { "agent": "hotspot", "role": "sub", "alias": "hotspot", "pin": "1.0.3",
+      "id": "agent-…", "version": 5, "lock_sha256": "…" }
   ],
   "environment": { "id": "env-…", "config_sha256": "…" },
   "vault":       { "id": "vlt-…", "credentials": ["<name>"] },
-  "memory":      [ { "id": "memstore-…", "access": "read_only", "entries_sha256": "…" } ],
+  "memory":      [ { "id": "memstore-…", "owner": "pm", "access": "read_only", "entries_sha256": "…" } ],
   "atomic":      [
-    { "id": "platform.report-cover", "agent": "coordinator",      "pin": "1.2.3", "fingerprint": "…", "skill_id": "skill-…" },
-    { "id": "platform.report-cover", "agent": "subagent:cleaner", "pin": "1.0.5", "fingerprint": "…", "skill_id": "skill-…" }
+    { "id": "platform.report-cover", "agent": "pm", "pin": "1.2.3", "fingerprint": "…", "skill_id": "skill-…" }
   ]
 }
 ```
 
+每个智能体发布时生成**它自己的锁定清单**（`agents/<agent>/resources.lock.json`：提示词摘要、MA Agent ID 与版本、引用的可复用能力的确切版本）。数字员工的锁定清单对 `sub` 只记录：智能体 ID、`pin`（锁定的版本）、MA Agent ID 与版本、该智能体锁定清单的摘要 `lock_sha256`；**`sub` 内部引用的能力版本不在数字员工清单里重复**。
+
 - 由 `apply` 生成并随发布提交，**不得手工编辑**；
 - `plan` 将清单、锁定清单、平台现状三方对照；
 - 资源 ID 只允许出现在锁定清单中，不出现在其他文件；
-- 主智能体与每个子智能体各占一条记录，引用的原子能力按智能体分别锁定。
+- `main` 一条记录，每个被引用的 `sub` 一条引用记录；`main` 引用的原子能力按 `agent: <main 的 ID>` 锁定，`sub` 的能力版本固定在它自己的版本里（`sub` 发布时锁定）。
 
 ### 7.6 会话版本快照
 
@@ -644,6 +790,24 @@ atomic_refs:
 
 该记录保存在网关侧，不含凭证值。
 
+#### 7.6.1 运行追溯与持久化（平台侧）
+
+对应交付规范 4.1、4.2。平台需要保证以下可追溯，存储形态不限（目录、数据库、对象元数据均可），不改变 TOS 自动生成的物理路径：
+
+| 记录 | 最低关联 | 说明 |
+|---|---|---|
+| 运行 | 数字员工、任务、运行 ID（有项目的加项目）；各智能体版本（锁定清单引用）；实际模型、Environment、原子能力 pin | 即 7.6 的会话版本快照 |
+| 执行记录 | 运行 ID、第几次、真实回执 | 重试单独记录 |
+| 产物 | 产物 ID、版本、sha256、来源（运行、智能体） | 对象存储地址 + 摘要，不只靠文件名或"最新" |
+| 质检 | 被检产物 ID、规则版本、执行者、结论、证据位置 | 质检必须指向明确产物 |
+| 交付 | 来源产物 ID、交付回执 | |
+
+- **持久化范围要分开说明**：产物（配置了产物存储时）、日志与证据、会话内临时文件三者的保留规则不同，不得对业务方暗示"整个工作目录持久"；
+- 会话内临时文件不承诺跨会话保留；接续依赖产物与任务记录；
+- 外部动作结果未知时，先查回执再决定是否重放（业务侧约定，网关是否自动重试需与网关实现核对，此处不做承诺）；
+- Agent、Team、Project 三类空间之间的共享与隔离，按团队任职、项目任职与授权配置（会话映射键见 6.7，产物前缀见 6.6），不由名称推定；Workspace 的材料不自动进入知识库，业务知识只经资源包更新（6.8）；
+- 与观测方案的关系：事件流的数据底座见 MA 事件流实测，本表不要求逐层建 JSON 文件。
+
 ---
 
 ## 8. 原子能力（Skill）打包
@@ -651,6 +815,7 @@ atomic_refs:
 | 项 | 要求 |
 |---|---|
 | 目录 | ZIP 内只有一个顶层目录 `<skill_name>/`，目录下直接包含且仅包含 1 个 `SKILL.md` |
+| 运行挂载 | 上传后运行时挂载到沙箱 `/mnt/skills/<skill_name>/`（**只读、各 Skill 平级隔离**）。脚本定位资源必须**相对本 Skill 根**，不得依赖资源包布局或跨 Skill 读文件；`registry/`、`io/contracts/`、`memory/` 不挂载进沙箱（接收校验 20）。自包含的跨 Skill 依赖要么内嵌进本 Skill，要么改用 `/mnt/skills/<其它 skill>/` 显式路径 |
 | 体量 | 不超过 500 个文件；上传原始总大小不超过 30 MiB；解压后单文件不超过 30 MiB、总计不超过 120 MiB |
 | 版本指纹 | 内容变化即新版本（同一 Skill ID）；重新打包同样内容不得产生新版本 |
 | 展示名 | `<atomic-id>@<内容指纹前 12 位>` |
@@ -724,6 +889,59 @@ atomic_refs:
 4. 更新 `ma_runtime`，执行 9.2；
 5. 评估架构图谱文档是否需要同步。
 
+### 9.5 增量交付的合并与构建
+
+对应交付规范 2.4。**所有智能体包用同一机制增量交付，各自独立走本流程、各自独立版本。** 业务方提交的增量包（只含变化文件 + `change-set.yaml`）由平台合并成**完整的包**后，再走第 3 章接收校验与 7.3 `plan`，**构建只依据合并后的完整包**。
+
+**合并流程：**
+
+```text
+增量包 + 基线（该包已发布的 base_version 的完整包）
+   ① 校验 change-set.yaml 字段与基线一致性
+   ② 合并（覆盖/新增/显式删除）→ 合并后的完整包
+   ③ 第 3 章接收校验（对完整包，含角色与引用第 12 项）
+   ④ 影响面核算
+   ⑤ plan（仅对受影响资源出差异）→ 回执给业务方确认
+   ⑥ 评审 → apply 到 dev → staging → prod（9.2）
+```
+
+| 规则 | 处理 |
+|---|---|
+| 基线 | `base_version` 必须等于该包当前最新已发布版本，否则退回并给出差异；基线内容从该版本保存的完整包与构建产物还原；**平台须按版本保存每次发布时的完整包** |
+| 版本回填 | 合并后的完整包，其 `registry/agent.json` 的 `version` 由平台置为 `change-set.yaml` 的 `new_version`；业务方不需要手改。取回的增量压缩包与合并后的完整包都留存，后者作为下一次增量的基线（`base_version` 对应的完整包） |
+| 合并 | 严格按 `change-set.yaml` 的登记合并：`add_*` 新增、`update_*` 整条/整文件替换、`remove_*` 删除；未登记的沿用基线；**不从目录差异推断任何动作** |
+| 记录 | 类型与键：`skills`、`tools`（`id`）、`shared_knowledge`（`as`，对应 `registry/knowledge.json`，写法同 `skills`）、`agents`（子智能体 `id`，仅 `main`，与 `skills` 同构：指明引用谁与版本范围）、`knowledge`（`path`）、`connections`（`name`）、`memory`（`name`）、`prompt`（固定名 `identity`，一个包一条）；`add_entries` 要求基线里**不存在**该键，`update_entries` 要求**已存在**并整条替换，`remove_entries` 要求**已存在**；不满足退回 |
+| 文件 | `add_files` 要求基线里不存在，`update_files` 要求已存在并整文件替换，`remove_files` 要求已存在；适用于除提示词和各类记录以外的文件（知识文件、Skill 目录下的文件、`acceptance/cases.yaml`、`registry/environment.json`、`registry/agent.json` 等）；**记录类文件**（`skills.json`、`tools.json`、`agents.json`、`knowledge.yaml`、`connections.yaml`、`memory/stores.yaml`）和**提示词**只用 `*_entries` 覆盖，不重复要求 `*_files` |
+| 登记与内容一致 | 增量包里的每个文件必须被 `add_files`/`update_files` 登记，每条记录必须被 `add_entries`/`update_entries` 登记；每条登记必须在包里有对应内容（`remove_*` 除外）；多、少、新增而基线已有、修改而基线没有，一律退回 |
+| 引用完整性 | `remove_entries` 删掉的资源，合并后的提示词占位符或其他声明不得再使用，否则退回；`add_entries` 新增的 `agents` 须在 `main` 的提示词里被提及；`remove_entries` 移除的 `agents`，提示词里不得再出现其别名 |
+| 提示词成套 | `prompt:identity` 登记后（新增或修改），增量必须给出**包里存在的全部提示词文件**（`identity.md` 必须，`orchestration.md`、`handoff.md` 视有无），没改动的也原样给出；平台**用增量给出的这一套重新拼接**（6.2.1），**不用基线里的旧文件补缺**；基线有而增量没给的提示词文件视为被删除；只给部分文件且未覆盖全套，一律退回（否则拼接结果会丢段） |
+| 新增子智能体引用的前提 | `add_entries` 里的 `agents:<id>` 须指向同一位数字员工里已发布、`role: sub` 的智能体，且 `range` 内有已发布版本；**`sub` 自己的内容变更只走它自己的包**，`main` 的增量里不得出现 `sub` 的内容文件 |
+| 移除 `sub` 引用 | 要求 `main` 编排同步修改（检查：`orchestration.md` 不再出现该别名，仅做存在性检查）；仅移除**引用**，**该 `sub` 的包及其 Agent 资源保留**；版本号升主版本。智能体本身下线走注册表 `transition`，`retired` 要求无 `active` 引用，此时再归档其 Agent 资源（10.1 第 5 条） |
+| `role`、`visibility` 变更 | 登记 `update_files: [registry/agent.json]`；升主版本；重新通过接收校验 12、17；`sub`→`main` 或反向，需要同时核对同一位数字员工是否仍然满足"有且仅有一个 `main`" |
+| 幂等 | `change_id` + 内容摘要相同视为重复，返回上次结果；`change_id` 相同、摘要不同，退回 |
+| 并发 | 同一个包同一时间只处理一个增量；基线漂移（别人先发布）→ 退回 |
+| 版本 | `new_version` 与变更类别一致，规则同交付规范 7.1 |
+
+**影响面核算（④）：**
+
+| 变更 | 影响 | 变更类别（9.1） |
+|---|---|---|
+| **`sub`** 的提示词、Skill、MCP、基础工具 | 发布该 `sub` 的新版本（该 Agent 的 MA 版本递增）；**已发布的 `main` 不受影响**（版本已固定）；平台用 `GET /refs?atomic_id=<sub 的完整标识>&status=active` 找出引用它的 `main`，逐个评估 | A |
+| `sub` 新版本在引用方 `range` 内 | 平台为 `main` 重新解析并锁定：更新 `main` 的 `multiagent.agents[]` 版本号（`main` 版本递增），回执请业务方确认；存量会话保存的是旧快照，须按 9.1 升级会话 | A、F |
+| `sub` 新版本超出 `range`（主要版本） | **不自动纳入**；`main` 的包增量改 `range`，作为 `main` 自己的一次变更 | A |
+| `sub` 声明的知识、记忆库、连接、环境依赖变化 | 属于会话级资源，影响引用它的 `main` 所在数字员工的整个会话；重新合并（6.2.4）并重新校验容量与冲突；知识文件内容变化为 K，新增库、凭证、环境为 D、B、C | D、B、C、K |
+| **`main`** 的提示词 | 仅 `main` 的 Agent 更新 | A |
+| `main` 的 Skill / MCP 引用 | 仅 `main` 的 Agent 更新 | A、F |
+| 新增 `sub` 引用 | `main` 更新（`multiagent`、编排）；该 `sub` 的会话级资源并入本数字员工（D） | A、D |
+| 移除 `sub` 引用 | `main` 更新；该 `sub` 声明的会话级资源移出合并结果 | A、D |
+| 知识文件内容 | 更新知识记忆库条目与映射表，即时生效 | K |
+| 新增知识目录 / 记忆库 | 新建会话级资源，存量会话需新建 | D |
+| 环境、凭证 | 整位数字员工受影响（含全部 `sub`） | B、C |
+
+- 未受影响的 Agent 不更新，其版本号与 `system_sha256` 在锁定清单中保持不变；
+- 回执内容：新增、修改、未变、删除的清单；受影响的智能体与引用方；各受影响智能体的完整系统提示词（占位符已替换）；合并检查结果；新版本号；
+- 回滚：以上一发布版本的锁定清单为目标，沿用 9.2；`sub` 回滚则把引用方的 `multiagent.agents[]` 改回旧版本并升级会话。
+
 ---
 
 ## 10. 安全红线与验收
@@ -763,13 +981,14 @@ atomic_refs:
 | 5 | 调用每个已接入的 MCP 与外部系统 | 每个至少成功一次；凭证只对声明的域名生效 |
 | 6 | 产出一个文件到 `/mnt/session/outputs/` | 能取回；配置了产物存储后，桶中对应前缀下能找到对象 |
 | 7 | 越界请求（索要密钥、无关泛聊） | 拒绝并引回职责 |
-| 8 | 业务线归属校验 | 资源元数据中的 `topic` 与交付路径一致；用另一业务线的标识操作被拒绝 |
-| 9 | 业务验收用例 | 业务方提供的用例全部通过，验收人签字 |
+| 8 | 业务线归属校验 | 资源元数据中的 `business-line-id` 与交付路径一致；用另一业务线的标识操作被拒绝 |
+| 9 | 业务验收用例 | 业务方提供的用例全部通过，验收人签字；**有 `io/contracts/` 的，用例的输入与产出按契约（JSON Schema）校验，结果写入回执**（运行时不校验） |
 
 ### 10.4 合入前检查单
 
 - [ ] 接收校验（第 3 章）全部通过
-- [ ] 业务线 ID、数字员工 ID、资源命名、元数据符合第 4 章，无必填缺失
+- [ ] 业务线 ID、数字员工 ID、智能体 ID、资源命名、元数据符合第 4 章，无必填缺失
+- [ ] 角色与引用已通过（接收校验 12）：`main` 有且仅有一个、不被引用，`sub` 不再引用且 `visibility` 为 `internal`；`internal` 智能体的生产渠道白名单非空（接收校验 17）
 - [ ] 引用的原子能力均已登记，状态与版本范围合法，`pin` 已写入锁定清单
 - [ ] 新增的可复用能力已登记注册表，字段完整、地址可取回
 - [ ] 变更类别（A 至 J）已标注，影响面已写明
@@ -790,14 +1009,19 @@ atomic_refs:
 
 | 业务交付物（《MA Agent 搭建交付规范》） | 构建产物 | 本文章节 |
 |---|---|---|
-| 路径与 `registry/employee.json` | `manifest.yaml`、资源元数据 | 6.1、4.2、4.4 |
-| `identity/coordinator/`、`subagent/` | `identity/agent.json`、`system.md`、子智能体各自的 Agent | 6.2、6.2.1 |
+| 路径与 `registry/agent.json` | `manifest.yaml`、资源元数据 | 6.1、4.2、4.4 |
+| `registry/agent.json`（`role`、`visibility`）、`registry/agents.json`（仅 `main`） | `main` Agent 的 `multiagent.agents[]`、`manifest.yaml` 的 `agents`；校验 12、17 | 6.2.2、6.7 |
+| 每个智能体包（`…/<智能体ID>/`） | 一个独立的 Agent、该智能体的锁定清单（7.1.1）；注册表类型 `agent` | 6.2.2、7.1.1 |
+| 会话级资源（知识、记忆库、凭证、环境）在各包中的声明 | 合并后的记忆库、Vault、Environment | 6.2.4 |
+| `change-set.yaml`（增量交付） | 合并后的完整包、影响面、回执 | 9.5 |
+| 提示词中的占位符 | 替换后的系统提示词 | 6.2.3 |
+| 各智能体包的 `identity/` | `agents/<agent>/agent.json`、`system.md` | 6.2、6.2.1 |
 | `skills/`、`registry/skills.json` | Skill 上传、`agent.json: skills[]` | 5、6.1、8 |
 | `tools/`、`connections.yaml`（`kind: mcp`） | `mcp_servers`、MCP 类凭证 | 6.1、6.4 |
 | `registry/environment.json` | `environment/environment.json`、`setup.sh` | 6.3 |
 | `connections.yaml`（`kind`: `api_key` / `oauth_token` / `mcp`） | `vault/credentials.spec.yaml`、Vault 凭证 | 6.4 |
 | `memory/`、`memory/stores.yaml` | `memory/`、`session.yaml: resources[].access` | 6.5 |
 | 业务知识目录、`knowledge.yaml` | 知识记忆库、映射表 | 6.1、6.8 |
-| `io/contracts/` | 网关与质检校验 | 6.1 |
-| 验收用例 | `verification/acceptance.md` | 7.1、10.3 |
+| `io/contracts/` | 验收阶段的输入输出校验（运行时暂不执行） | 6.1、10.3 |
+| `acceptance/cases.yaml` | `verification/acceptance.md`（回执中写入每个用例的执行结论） | 7.1、10.3 |
 | 由中台补全 | 业务线 ID 的全局唯一性、元数据、模型、TOS 挂载、产物存储、锁定清单 | 4、6.2、6.6、7 |
