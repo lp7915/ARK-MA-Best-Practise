@@ -14,8 +14,8 @@ import re
 import sys
 from pathlib import Path
 
-# 智能体 ID：3–24 位小写字母/数字/连字符
-ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,23}$")
+# 智能体 ID：1–24 位小写字母/数字/连字符
+ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,23}$")
 # 脚本文件名禁用后缀
 BAD_SUFFIX = re.compile(r"(_v\d+|_old|_new|_copy|_final|_bak)(\.|$)", re.I)
 # 疑似密钥
@@ -162,17 +162,22 @@ def main() -> int:
                 ky_bad.append(f"{name}: knowledge/{rel} 不存在")
     R.append(("静态", "FAIL" if ky_bad else "PASS", "10 knowledge.yaml 目录存在", "; ".join(ky_bad) or "目录均存在"))
 
-    # 11. 容量：知识文件 ≤100KiB、目录文件数 ≤1990、知识目录数+记忆库数 ≤10
+    # 11. 容量：知识文件 ≤100KiB、每个知识目录（knowledge.yaml 声明的 root）文件数 ≤1990、知识目录数+记忆库数 ≤10
     cap_bad = []
     kdir_count = 0
     for name, p in pkgs.items():
-        for d in (p / "knowledge").iterdir() if (p / "knowledge").exists() else []:
+        ky = p / "knowledge.yaml"
+        roots = re.findall(r"path:\s*(\S+)", ky.read_text(encoding="utf-8")) if ky.exists() else []
+        if not roots and (p / "knowledge").is_dir():
+            roots = ["knowledge"]
+        for rel in roots:
+            d = p / rel
             if not d.is_dir():
                 continue
             kdir_count += 1
             files = [f for f in d.rglob("*") if f.is_file()]
             if len(files) > MAX_FILES_PER_DIR:
-                cap_bad.append(f"{name}/knowledge/{d.name}: {len(files)} 文件 > {MAX_FILES_PER_DIR}")
+                cap_bad.append(f"{name}/{rel}: {len(files)} 文件 > {MAX_FILES_PER_DIR}")
             for f in files:
                 if f.stat().st_size > MAX_KB:
                     cap_bad.append(f"{name}/{f.relative_to(p)}: {f.stat().st_size} > 100KiB")

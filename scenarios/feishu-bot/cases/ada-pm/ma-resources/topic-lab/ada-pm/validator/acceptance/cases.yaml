@@ -1,0 +1,74 @@
+scope: MA规范资源包上传构建后 validator 子智能体直连调试的最低验收；业务材料可合成，Agent调用/命令/文件回传必须实际发生
+version: 1.2.0
+execution_status: 未执行：等待受检环境按用例执行；不以期望冒充通过
+cases:
+- id: V-01
+  title: 明确产物版本检查通过
+  category: 正常
+  route: direct
+  agents:
+  - validator
+  input: 直连 validator，输入 t 阶段完整产物并指定工程检查规则版本。
+  expected: 按指定规则逐项检查（如 8 项），返回 PASS；检查针对明确产物版本，不替代业务确认。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/normal.md
+  required_resources:
+  - registry/agent.json
+  - registry/skills.json
+  - identity/identity.md
+  - identity/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/output.validation.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  platform_conclusion: 未执行
+  execution_requirement: 直连场景必须有实际 validator Agent 及命令/文件回执；禁止用单进程模拟角色完成代替
+- id: V-02
+  title: 证据缺失判无法判断
+  category: 边界
+  route: direct
+  agents:
+  - validator
+  input: 直连 validator，输入缺少部分检查所需文件/字段的产物。
+  expected: 对缺证据项返回 INCONCLUSIVE（无法判断），不强行 PASS 或 FAIL。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/boundary.md
+  required_resources:
+  - registry/agent.json
+  - registry/skills.json
+  - identity/identity.md
+  - identity/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/output.validation.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  platform_conclusion: 未执行
+  execution_requirement: 直连场景必须有实际 validator Agent 及命令/文件回执
+- id: V-03
+  title: 产物缺文件/版本不符判失败
+  category: 失败
+  route: direct
+  agents:
+  - validator
+  input: 直连 validator，输入缺关键文件或版本与指定规则不符的产物。
+  expected: 返回 FAIL 并指出具体失败项；不用旧版本检查替代现版本检查。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/failure.md
+  required_resources:
+  - registry/agent.json
+  - registry/skills.json
+  - identity/identity.md
+  - identity/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/output.validation.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  platform_conclusion: 未执行
+  execution_requirement: 直连场景必须有实际 validator Agent 及命令/文件回执
+platform_preconditions:
+- 平台按 registry/agent.json 创建真实 validator 子 Agent 并挂载资源
+- validator 可执行挂载 Skill 命令并访问已授权任务 Workspace
+- 原生回传及可信身份、持久化在构建回执确认

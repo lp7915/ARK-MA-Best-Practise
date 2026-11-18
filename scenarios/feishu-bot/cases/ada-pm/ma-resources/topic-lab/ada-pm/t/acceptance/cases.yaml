@@ -1,0 +1,74 @@
+scope: MA规范资源包上传构建后 t 子智能体直连调试的最低验收；业务材料可合成，Agent调用/命令/文件回传必须实际发生
+version: 1.2.0
+execution_status: 未执行：等待受检环境按用例执行；不以期望冒充通过
+cases:
+- id: T-01
+  title: 完整社媒Topic报告直连产出
+  category: 正常
+  route: direct
+  agents:
+  - t
+  input: 直连 t，输入 fixture.social_event，明确请求完整社媒 Topic 报告。
+  expected: 产出完整候选 Topic 报告；t 独立完成领域分析，不调用 g/s/validator；报告字段与 io/contracts 对齐。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/normal.md
+  required_resources:
+  - registry/agent.json
+  - registry/skills.json
+  - identity/identity.md
+  - identity/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/output.artifact.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  platform_conclusion: 未执行
+  execution_requirement: 直连场景必须有实际 t Agent 及命令/文件回执；禁止用单进程模拟角色完成代替
+- id: T-02
+  title: 数据边界不臆造字段
+  category: 边界
+  route: direct
+  agents:
+  - t
+  input: 直连 t，输入仅含部分字段（缺少年龄/性别等）的人群变体，请求完整人群报告。
+  expected: 产出现有字段范围内的报告；不臆造年龄/性别/购买意图；独立返回来源与限制。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/boundary.md
+  required_resources:
+  - registry/agent.json
+  - registry/skills.json
+  - identity/identity.md
+  - identity/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/output.artifact.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  platform_conclusion: 未执行
+  execution_requirement: 直连场景必须有实际 t Agent 及命令/文件回执
+- id: T-03
+  title: 能力外动作如实拒绝
+  category: 失败
+  route: direct
+  agents:
+  - t
+  input: 直连 t，仅要求对评论表按 id 去重（局部动作），不请求完整报告。
+  expected: t 如实拒绝或明确不在职责内；不承接局部原子动作，不伪造工具或用户回应。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/failure.md
+  required_resources:
+  - registry/agent.json
+  - registry/skills.json
+  - identity/identity.md
+  - identity/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/output.artifact.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  platform_conclusion: 未执行
+  execution_requirement: 直连场景必须有实际 t Agent 及命令/文件回执
+platform_preconditions:
+- 平台按 registry/agent.json 创建真实 t 子 Agent 并挂载资源
+- t 可执行挂载 Skill 命令并访问已授权任务 Workspace
+- 原生回传及可信身份、持久化在构建回执确认
