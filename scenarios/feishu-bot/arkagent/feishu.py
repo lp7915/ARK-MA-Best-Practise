@@ -375,6 +375,44 @@ class FeishuSender:
                 break
         return pairs
 
+    def list_chat_bots(self, chat_id: str) -> list[tuple[str, str]]:
+        """拉取一个群内的机器人，返回 (显示名, open_id) 列表。
+
+        飞书 `chats/:chat_id/members` 只返回真人（机器人在那里被过滤掉），机器人要单独走
+        `GET /open-apis/im/v1/chats/:chat_id/members/bots`，返回项 `bot_id` 即机器人的 open_id、
+        `bot_name` 为显示名。供出站把 Agent 回复里的 `@机器人名` 重写成可点击 `<at user_id=...>`，
+        从而支持 bot 回复 bot（a2a）时 @ 回对方。纯 IO，失败抛异常由 chat_roster 降级。
+        """
+        from lark_channel import AccessTokenType, BaseRequest, HttpMethod
+
+        request = (
+            BaseRequest.builder()
+            .http_method(HttpMethod.GET)
+            .uri("/open-apis/im/v1/chats/:chat_id/members/bots")
+            .paths({"chat_id": chat_id})
+            .token_types({AccessTokenType.TENANT})
+            .build()
+        )
+        response = self._client.request(request)
+        if not response.success():
+            raise RuntimeError(f"读取群内机器人失败 {response.code}: {response.msg}")
+        raw = response.raw.content if response.raw else None
+        try:
+            payload = json.loads(raw) if raw else {}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = {}
+        data = payload.get("data") if isinstance(payload, dict) else None
+        data = data if isinstance(data, dict) else {}
+        pairs: list[tuple[str, str]] = []
+        for item in data.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            bot_id = str(item.get("bot_id") or "")
+            name = str(item.get("bot_name") or "")
+            if bot_id and name:
+                pairs.append((name, bot_id))
+        return pairs
+
     def chat_roster(self, chat_id: str) -> dict[str, str]:
         """群成员名册 `显示名 → open_id`（带 TTL 缓存 + 同名消歧）。
 
@@ -387,10 +425,15 @@ class FeishuSender:
         cached = self._roster_cache.get(chat_id)
         if cached is not None and cached[0] > now:
             return cached[1]
+        pairs: list[tuple[str, str]] = []
         try:
-            pairs = self.list_chat_members(chat_id)
+            pairs.extend(self.list_chat_members(chat_id))
         except Exception:  # noqa: BLE001 - 名册拉取失败不该拖垮回复，退回不 @
             return {}
+        try:
+            pairs.extend(self.list_chat_bots(chat_id))
+        except Exception:  # noqa: BLE001 - 机器人名册拉取失败只影响 @bot，不影响 @人
+            pass
         roster = _build_roster(pairs)
         self._roster_cache[chat_id] = (now + CHAT_ROSTER_TTL_SECONDS, roster)
         return roster
