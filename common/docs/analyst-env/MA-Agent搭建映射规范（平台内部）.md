@@ -1,6 +1,6 @@
 # MA Agent 搭建映射规范（平台内部）
 
-> 版本：v1.4 · **平台内部文档**（对应《MA Agent 搭建交付规范》v1.4），面向中台研发
+> 版本：v1.5 · **平台内部文档**（对应《MA Agent 搭建交付规范》v1.5），面向中台研发
 > **适用范围：** 基于火山方舟 Managed Agents（MA）底座搭建数字员工（Agent）。本文规定：拿到业务方按《MA Agent 搭建交付规范》交付的资源包后，如何校验、如何映射并构建成 MA 上的 Agent、Environment、Vault、Memory Store 等资源；多个业务方共用同一个 MA 项目时如何区分与治理；可复用能力如何注册与升级；如何变更、升级与回滚。
 > 业务方不需要阅读本文。业务方的交付格式见《MA Agent 搭建交付规范》。
 
@@ -175,7 +175,7 @@
 | 员工之间需要共用的内容 | 各自保留副本；需要统一维护、统一升级的，登记为原子能力（第 5 章）并引用 |
 | 跨业务方共用的能力 | 登记为原子能力（第 5 章），由中台持有，业务方按版本引用 |
 | Memory Store 跨业务方共享 | **默认不允许**；确需共享的，由中台创建只读共享库，业务线 ID 为 `platform`，业务方只能只读挂载 |
-| Vault 与凭证 | 永远按业务线隔离 |
+| Vault 与凭证 | **按智能体隔离**：每位数字员工下每个智能体一个 Vault，不跨智能体共用（6.4） |
 | Environment | 一位数字员工一个，不跨员工、不跨业务方共用；因此**不存在跨员工、跨业务线的依赖冲突**，也不需要合并 |
 | 额度与并发 | 按业务线统计；超限由中台限流 |
 
@@ -256,6 +256,37 @@
 | 产物保留诉求（收集表） | 产物存储 | `config.tos`，由中台规划 |
 | 工作空间（任务、运行） | 会话参数 | 见 6.6 |
 
+#### 6.1.1 端到端案例（以 ADA 为例）
+
+> 例子取自真实迁移：业务线 `topic-lab`、数字员工 `ada-pm`，1 个 `main`（`pm`）+ 4 个 `sub`（`t` / `g` / `s` / `validator`）。以下是"业务交付目录 ↔ MA 资源"的完整对照，是 6.1 总映射表的一次具体化；各字段的规则见后续各节。
+
+```text
+业务交付目录                                       MA 资源
+topic-lab/ada-pm/
+├─ pm/          ─────────────────▶  Agent  topic-lab-ada-pm-pm
+│                                   · role: main（multiagent.type = coordinator）
+│                                   · multiagent.agents[] = [t, g, s, validator]
+│                                     （显式写 id + version，见 6.2.2）
+├─ t/           ─────────────────▶  Agent  topic-lab-ada-pm-t          （sub）
+├─ g/           ─────────────────▶  Agent  topic-lab-ada-pm-g          （sub）
+├─ s/           ─────────────────▶  Agent  topic-lab-ada-pm-s          （sub）
+└─ validator/   ─────────────────▶  Agent  topic-lab-ada-pm-validator  （sub）
+
+5 个包的 knowledge.yaml           ─▶  知识记忆库 topic-lab-ada-pm-mem-knowledge-01..05
+                                      （read_only，会话级共享，见 6.8）
+5 个包的 registry/environment.json ─▶  Environment topic-lab-ada-pm-env ×1
+                                      （合并，须自洽，见 6.2.4、6.3）
+5 个包的 connections.yaml         ─▶  Vault 凭证：每智能体一个 Vault（收集 vault_ids 集合，见 6.2.4、6.4）
+飞书应用（渠道）                  ─▶  gateway 入口，用户只触达 main（见 6.7）
+```
+
+逐行对应 6.1 总映射表：
+
+- 5 个智能体包 → 5 个 Agent，`main` 与 `sub` 规格一致，区别只在 `role` / `visibility` / 是否有 `registry/agents.json`（6.2）；
+- 5 份 `knowledge.yaml` → 5 个独立知识记忆库，主、子线程都能读（6.2.4、6.8）；
+- 5 份 `environment.json` → 合并为 1 个 Environment，版本要求冲突即构建失败（6.2.4）；
+- 5 份 `connections.yaml` → 每智能体各一个 Vault，会话挂 5 个 Vault 集合，不跨智能体合并（6.4）。
+
 ### 6.2 Agent
 
 | 要点 | 规则 |
@@ -319,7 +350,7 @@
 | 资源 | 层级 | 来源 |
 |---|---|---|
 | 提示词、Skill 列表、MCP 与对应工具集、基础工具集 | **Agent 自己** | 来自该智能体自己的包，可复用能力的版本在**该智能体发布时**锁定。整体替换语义，每个 Agent 都写完整数组 |
-| 知识记忆库、长期记忆库、Vault、Environment、TOS 挂载 | **会话级**，不属于某个 Agent | 见 6.2.4：构建数字员工时把主 Agent 与各子 Agent 的声明合并 |
+| 知识记忆库、长期记忆库、Vault、Environment、TOS 挂载 | **会话级**，不属于某个 Agent | 见 6.2.4：记忆库 / Vault / TOS 收集集合，Environment 合并 |
 
 **实测结论与待验证项**（2026-11-09 在 BYOK 模型 `gpt-6.1-sol`、`agent_toolset_20260916` 下实测，探针资源已全部按精确 ID 清理）：
 
@@ -345,21 +376,21 @@
 
 #### 6.2.4 会话级资源的合并
 
-构建一位数字员工时，对**它的 `main` 包和所有被 `main` 引用的 `sub` 包（已锁定版本）**声明的会话级资源做合并，作为同一次会话的资源。输入是各包的 `knowledge.yaml`、`memory/stores.yaml`、`connections.yaml`、`registry/environment.json`；每项都记录**所属智能体**（`owner`：智能体 ID）。
+构建一位数字员工时，对**它的 `main` 包和所有被 `main` 引用的 `sub` 包（已锁定版本）**声明的会话级资源，作为同一次会话的资源。输入是各包的 `knowledge.yaml`、`memory/stores.yaml`、`connections.yaml`、`registry/environment.json`；每项都记录**所属智能体**（`owner`：智能体 ID）。**会话级资源分两类处理：能挂多个的（记忆库、Vault、TOS）按「收集集合」——直接取各智能体声明的资源 ID 并集挂进会话，不合并；只有只能一个的（Environment）才做「合并」与冲突检查。**
 
 | 资源 | 合并规则 |
 |---|---|
 | 知识记忆库 | 并集。每个已声明的知识目录**以及每个 `registry/knowledge.json` 引用的共享知识**各一个库（共享知识的内容取自注册表该版本的 `address`，按 `as` 命名，作用与自有知识目录一致，映射表标注 `source: registry:<atomic_id>@<pin>`），同名目录各自成库；命名 `<business-line-id>-<emp>-mem-knowledge-<序号>`，**序号在数字员工内统一分配（先 `main`，再按 `registry/agents.json` 的声明顺序），首次分配后固定**（沿用 6.8.2）。映射表（6.8.4）增加 `owner`，记录库属于哪个智能体 |
 | 长期记忆库 | 并集。命名 `<business-line-id>-<emp>-mem-<owner>-<purpose>`（`<owner>` 为所属智能体 ID）；同名不合并；各库按自己包里的 `access` 挂载 |
-| Vault 凭证 | 并集。`secret_name`、`hosts`、`kind` 全部相同的合并为一条；`secret_name` 相同但 `hosts` 或 `kind` 不同，阻断；MCP 类按 `mcp_server_url` 去重，同一 Vault 内必须唯一（6.4） |
+| Vault 凭证 | **收集，不合并**：每个智能体一个 Vault，其 `connections.yaml` 声明的连接都放入该智能体自己的 Vault；会话把 main 与所有 sub 的 Vault 都挂上（`vault_ids` 集合）。同一 Vault 内 `mcp_server_url`、`secret_name` 仍须唯一（6.4），但**不做跨智能体的同名去重与冲突阻断** |
 | Environment | 各包的依赖合并为一份：同一个包出现多个版本要求时必须自洽，不自洽阻断，**错误指出冲突的两个包与包名、版本要求**；`env`、`setup_script` 同名冲突同样阻断 |
 | 提示词中的占位符 | 按**所在包**解析（含该包 `knowledge.json` 的 `as` 目录）：每个智能体的 `{{knowledge:…}}`、`{{memory:…}}` 只能引用自己包里声明的容器与已提供的条目，替换时用映射表中该库的 ID 和路径 |
 
-合并后再做数量与容量校验（7.3 第 8 项）：**会话记忆库总数（所有智能体的知识库加长期记忆库）、Vault 凭证数等按合并后的总数计算**，不是按单个包计算。被引用的 `sub` 越多，越容易触及 10 个记忆库的会话上限，`plan` 报告须列出各包的占用。
+收集/合并后再做数量与容量校验（7.3 第 8 项）：**会话记忆库总数（所有智能体的知识库加长期记忆库）按收集后的总数计算**，不是按单个包计算；Vault 按智能体各自计算（每个 Vault 独立、上限见 6.4），不跨智能体累加。被引用的 `sub` 越多，越容易触及 10 个记忆库的会话上限，`plan` 报告须列出各包的占用。
 
 知识与记忆**属于一位数字员工**：智能体不跨数字员工引用（接收校验 12），因此记忆库也不跨数字员工共享（与 4.6 一致）。
 
-合并产物写入构建目录 `memory/knowledge.map.json`、`vault/credentials.spec.yaml`、`environment/environment.json`，并在 `plan` 报告中列出每项资源的来源包。
+产物写入构建目录 `memory/knowledge.map.json`（记忆库映射）、`vault/vaults.spec.yaml`（每智能体的 Vault 与凭证清单）、`environment/environment.json`（唯一做合并的 Environment），并在 `plan` 报告中列出每项资源的来源包。
 
 #### 6.2.3 提示词占位符的解析
 
@@ -422,7 +453,7 @@
 
 ### 6.4 Vault 与凭证
 
-由 `connections.yaml` 编译。每条连接生成一条凭证：
+由 `connections.yaml` 编译。**每个智能体一个 Vault**：其 `connections.yaml` 声明的每条连接生成一条凭证，放入该智能体自己的 Vault（会话挂所有智能体的 Vault 集合，见 6.2.4，凭证不跨智能体合并）。字段映射：
 
 | 业务 `kind` | MA 凭证类型 | 说明 |
 |---|---|---|
@@ -451,7 +482,7 @@
 - OAuth 刷新要求令牌端点返回 JSON，`access_token` 为字符串，`expires_in` 为整数秒，否则刷新失败；
 - 已挂载 Vault 的既有会话感知不到之后新增的凭证，新增后必须新建会话；
 - 凭证真实值由提供人单独交付，只存入密钥存储与 Vault，不经文档、聊天、邮件；
-- Vault 按业务线隔离，不跨业务方共用。
+- Vault 按**智能体**隔离：每位数字员工下每个智能体一个 Vault，不跨智能体共用；会话挂所有参与智能体的 Vault 集合（6.2.4）。
 
 ### 6.5 Memory Store
 
@@ -681,7 +712,7 @@ ma-build/<business-line-id>/<emp>/
 │   ├── environment.json          # 各包 registry/environment.json 合并后编译（6.2.4）
 │   └── setup.sh
 ├── vault/
-│   └── credentials.spec.yaml     # 各包 connections.yaml 合并后编译；无值
+│   └── vaults.spec.yaml           # 每智能体一个 Vault 的清单（各包 connections.yaml 收集，不合并）
 ├── memory/                       # 设置记忆时才有
 │   ├── memory-store.json
 │   ├── knowledge.map.json        # 知识映射表（6.8.4），含各库所属智能体
@@ -727,9 +758,9 @@ agents:
   subs:                           # 来自 main 的 registry/agents.json；每项固定到一个确切版本
     - { alias: hotspot, agent: hotspot, role: sub, visibility: internal, range: "^1.0.0", pin: "1.0.3", file: agents/hotspot/agent.json }
 
-resources:                        # 会话级资源：按数字员工一份，合并自 main 与全部 sub（6.2.4）
-  environment: { name: <business-line-id>-<emp>-env,    file: environment/environment.json }
-  vault:       { name: <business-line-id>-<emp>-vault,  spec: vault/credentials.spec.yaml }
+resources:                        # 会话级资源：按数字员工一份，收集/合并自 main 与全部 sub（6.2.4）
+  environment: { name: <business-line-id>-<emp>-env,    file: environment/environment.json }  # 唯一一个 Environment（合并）
+  vaults:      [ { agent: <智能体ID>, name: <business-line-id>-<emp>-vault-<agent> } ]        # 每智能体一个 Vault（收集，不合并）
   memory:      []                  # 例：[{ name: <business-line-id>-<emp>-mem-<owner>-<purpose>, access: read_only }]
   session:     { file: session/session.yaml }
 ```
@@ -745,7 +776,7 @@ resources:                        # 会话级资源：按数字员工一份，�
 5. **兼容**：原子能力的 `compat` 与当前 `ma_runtime` 相符；
 6. **凭证**：构建产物与环境变量中无密钥明文；每条凭证的域名已逐个列出；
 7. **记忆**：每个挂载的记忆库权限已显式声明；
-8. **数量与多智能体**：`agents.json` 引用合法；以下数量均按 6.2.4 **合并后的总数**计算，未超平台上限（Skill 50、工具 128、环境变量 64、Vault 凭证 100、会话文件 10）；**会话记忆库（知识记忆库加长期记忆库）合计不超过 10**；知识文件 ≤ 100 KiB、单个知识目录文件数 ≤ 1,990，任一超出阻断并退回业务方（见 6.8.3）。
+8. **数量与多智能体**：`agents.json` 引用合法；以下数量按 6.2.4 计算——**会话记忆库（知识记忆库加长期记忆库）合计不超过 10**（收集后的总数）；Skill 50、工具 128、环境变量 64、会话文件 10 等上限未超；**每个 Vault 凭证 ≤ 100（按各智能体 Vault 分别计）**；知识文件 ≤ 100 KiB、单个知识目录文件数 ≤ 1,990，任一超出阻断并退回业务方（见 6.8.3）。
 
 ### 7.4 版本固定
 
@@ -929,7 +960,7 @@ resources:                        # 会话级资源：按数字员工一份，�
 | **`sub`** 的提示词、Skill、MCP、基础工具 | 发布该 `sub` 的新版本（该 Agent 的 MA 版本递增）；**已发布的 `main` 不受影响**（版本已固定）；平台用 `GET /refs?atomic_id=<sub 的完整标识>&status=active` 找出引用它的 `main`，逐个评估 | A |
 | `sub` 新版本在引用方 `range` 内 | 平台为 `main` 重新解析并锁定：更新 `main` 的 `multiagent.agents[]` 版本号（`main` 版本递增），回执请业务方确认；存量会话保存的是旧快照，须按 9.1 升级会话 | A、F |
 | `sub` 新版本超出 `range`（主要版本） | **不自动纳入**；`main` 的包增量改 `range`，作为 `main` 自己的一次变更 | A |
-| `sub` 声明的知识、记忆库、连接、环境依赖变化 | 属于会话级资源，影响引用它的 `main` 所在数字员工的整个会话；重新合并（6.2.4）并重新校验容量与冲突；知识文件内容变化为 K，新增库、凭证、环境为 D、B、C | D、B、C、K |
+| `sub` 声明的知识、记忆库、连接、环境依赖变化 | 属于会话级资源，影响引用它的 `main` 所在数字员工的整个会话；重新收集/合并（6.2.4）并重新校验容量与冲突；知识文件内容变化为 K，新增库、凭证、环境为 D、B、C | D、B、C、K |
 | **`main`** 的提示词 | 仅 `main` 的 Agent 更新 | A |
 | `main` 的 Skill / MCP 引用 | 仅 `main` 的 Agent 更新 | A、F |
 | 新增 `sub` 引用 | `main` 更新（`multiagent`、编排）；该 `sub` 的会话级资源并入本数字员工（D） | A、D |
@@ -1012,14 +1043,14 @@ resources:                        # 会话级资源：按数字员工一份，�
 | 路径与 `registry/agent.json` | `manifest.yaml`、资源元数据 | 6.1、4.2、4.4 |
 | `registry/agent.json`（`role`、`visibility`）、`registry/agents.json`（仅 `main`） | `main` Agent 的 `multiagent.agents[]`、`manifest.yaml` 的 `agents`；校验 12、17 | 6.2.2、6.7 |
 | 每个智能体包（`…/<智能体ID>/`） | 一个独立的 Agent、该智能体的锁定清单（7.1.1）；注册表类型 `agent` | 6.2.2、7.1.1 |
-| 会话级资源（知识、记忆库、凭证、环境）在各包中的声明 | 合并后的记忆库、Vault、Environment | 6.2.4 |
+| 会话级资源（知识、记忆库、凭证、环境）在各包中的声明 | 收集后的记忆库 / Vault、合并后的 Environment | 6.2.4 |
 | `change-set.yaml`（增量交付） | 合并后的完整包、影响面、回执 | 9.5 |
 | 提示词中的占位符 | 替换后的系统提示词 | 6.2.3 |
 | 各智能体包的 `identity/` | `agents/<agent>/agent.json`、`system.md` | 6.2、6.2.1 |
 | `skills/`、`registry/skills.json` | Skill 上传、`agent.json: skills[]` | 5、6.1、8 |
 | `tools/`、`connections.yaml`（`kind: mcp`） | `mcp_servers`、MCP 类凭证 | 6.1、6.4 |
 | `registry/environment.json` | `environment/environment.json`、`setup.sh` | 6.3 |
-| `connections.yaml`（`kind`: `api_key` / `oauth_token` / `mcp`） | `vault/credentials.spec.yaml`、Vault 凭证 | 6.4 |
+| `connections.yaml`（`kind`: `api_key` / `oauth_token` / `mcp`） | `vault/vaults.spec.yaml`、每智能体 Vault 凭证 | 6.4 |
 | `memory/`、`memory/stores.yaml` | `memory/`、`session.yaml: resources[].access` | 6.5 |
 | 业务知识目录、`knowledge.yaml` | 知识记忆库、映射表 | 6.1、6.8 |
 | `io/contracts/` | 验收阶段的输入输出校验（运行时暂不执行） | 6.1、10.3 |

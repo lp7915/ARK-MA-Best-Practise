@@ -29,8 +29,8 @@ CAPACITY = DOCS / "MA-Agent搭建容量限制说明.md"
 SPLIT: list[tuple[str, str, list[tuple[str, list[str] | None]]]] = [
     (
         "01-basics.md",
-        "交付物与目录",
-        [("1.", None), ("2.", ["2.1", "2.2"]), ("3.", None)],
+        "业务架构、交付物与目录",
+        [("0.", None), ("1.", None), ("2.", ["2.1", "2.2", "目标态"]), ("3.", None)],
     ),
     (
         "02-roles-and-increments.md",

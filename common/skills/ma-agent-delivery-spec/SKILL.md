@@ -1,11 +1,11 @@
 ---
 name: ma-agent-delivery-spec
-description: 按《MA Agent 搭建交付规范》v1.4 新建、修改、检查、打包一个"智能体包"（数字员工的一个 main 或 sub 智能体）。当用户要搭建/新增/改动火山方舟 Managed Agents(MA) 底座上的数字员工或子智能体、要写 identity/knowledge/registry/change-set、要判断某个目录能不能交付、要把包打成压缩包并生成公网链接与 SHA-256、要准备验收用例与交付检查单、或问"规范里 X 该怎么写/允不允许"时使用。产出必须符合规范的目录结构、命名、增量登记与验收要求。
+description: 按《MA Agent 搭建交付规范》v1.5 新建、修改、检查、打包一个"智能体包"（数字员工的一个 main 或 sub 智能体）。当用户要搭建/新增/改动火山方舟 Managed Agents(MA) 底座上的数字员工或子智能体、要写 identity/knowledge/registry/change-set、要判断某个目录能不能交付、要把包打成压缩包并生成公网链接与 SHA-256、要准备验收用例与交付检查单、或问"规范里 X 该怎么写/允不允许"时使用。产出必须符合规范的目录结构、命名、增量登记与验收要求。
 ---
 
 # ma-agent-delivery-spec：MA 智能体包交付规范
 
-这是《MA Agent 搭建交付规范》v1.4 的**执行版**。规范原文是唯一事实源，本 skill 把它按主题拆成
+这是《MA Agent 搭建交付规范》v1.5 的**执行版**。规范原文是唯一事实源，本 skill 把它按主题拆成
 `references/`，并给出按顺序执行的作业流程。**规则细节以 `references/` 为准；references 与规范原文
 不一致时，以规范原文为准。**
 
@@ -38,6 +38,7 @@ description: 按《MA Agent 搭建交付规范》v1.4 新建、修改、检查�
 
 ### A. 新建一个智能体包
 
+0. **先明确业务架构背景**：这条业务线的数字员工有几个角色、谁当入口（`main`）、谁是被引用的子智能体（`sub`），先落到一份业务架构背景上（见 `references/01-basics.md` 的「0. 开发前」）。这决定有几个包、谁 main 谁 sub，是后续步骤的前提。业务架构背景的完整示例见 `examples/ADA-ARCHITECTURE-AI-v0.7.20.md`（ADA：PM 主 Agent + 领域/策略/通用三类子 Agent + Validator 作 Skill）。
 1. **确认身份**：业务线 ID、数字员工 ID、智能体 ID（都是 3–24 位小写字母/数字/连字符）。
    用户没给就问，不要自己编。数字员工下**有且仅有一个 `role: main`**。
 2. **建目录**：`<业务线ID>/<数字员工ID>/<智能体ID>/`，按 `references/01-basics.md` 的目录树建。
