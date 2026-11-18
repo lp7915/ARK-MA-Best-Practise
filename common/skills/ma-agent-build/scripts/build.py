@@ -236,6 +236,11 @@ def ensure_vault(business_line: str, employee: str, agent: str, connections: lis
         vault_id = unwrap_id(resp)
         print(f"  Vault 已创建: {name} -> {vault_id}")
     cred_ids: list[str] = []
+    # 幂等：已存在同 secret_name 的凭证就复用（凭证值创建后不可回读，换值需删除重建）
+    existing_creds = {
+        (c.get("auth") or {}).get("secret_name"): c.get("id")
+        for c in payload_to_items(ark_get(f"/vaults/{vault_id}/credentials"))
+    }
     for conn in connections:
         kind = conn.get("kind", "")
         secret_name = str(conn.get("secret_name") or "")
@@ -243,6 +248,10 @@ def ensure_vault(business_line: str, employee: str, agent: str, connections: lis
         if kind == "api_key":
             if not secret_name:
                 print(f"  [warn] {agent}: api_key 连接缺 secret_name，跳过")
+                continue
+            if secret_name in existing_creds:
+                cred_ids.append(existing_creds[secret_name])
+                print(f"  凭证已存在(复用): {secret_name} -> {existing_creds[secret_name]}")
                 continue
             value = credential_values.get(secret_name)
             if not value:
@@ -410,7 +419,8 @@ def agent_config(cfg: dict, business_line: str, employee: str, pkg_name: str, sy
         "description": meta.get("description", ""),
         "model": cfg["model"],
         "system": system,
-        "tools": cfg.get("tools", DEFAULT_TOOLS),
+        # 平台侧 tools 可按智能体覆写：build-config.json 的 agent_tools[<包名>]，未写则用统一的 tools
+        "tools": (cfg.get("agent_tools") or {}).get(pkg_name) or cfg.get("tools", DEFAULT_TOOLS),
         **({"mcp_servers": cfg["mcp_servers"]} if cfg.get("mcp_servers") and meta.get("role") == "main" else {}),
         "metadata": {
             "managed_by": "ma-build",
