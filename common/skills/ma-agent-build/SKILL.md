@@ -44,7 +44,7 @@ description: 把一份按《MA Agent 搭建交付规范》组织好的「数字�
 - system = `identity/identity.md`→`orchestration.md`→`handoff.md` 按「# 身份 / # 编排 / # 交接」拼接，`{{knowledge:路径}}`、`{{memory:库/路径}}`、`{{input}}`、`{{output}}` 由构建器替换，替换完不得残留 `{{`。
 - 知识库命名 `<业务线>-<数字员工>-mem-knowledge-<序号>`，序号在数字员工内统一分配：先 main，再按 `registry/agents.json` 声明顺序，每个 `knowledge.yaml` 的 root 一个库，只读。
 - `skills[].version` 是字符串；`multiagent.agents[].version` 是 int32（两处类型相反，写错 400）。
-- main 的 `multiagent` 只展开一层、显式写 sub 的 id+version，不使用 `type:self`。
+- main 的 `multiagent` 只展开一层、显式写 sub 的 id+version；允许 `type:self`（`agents.json` 里写 `{"id":"self"}`，仅 main）。
 - **Vault**：每智能体一个（`<业务线>-<数字员工>-vault-<智能体>`），读 `connections.yaml`，凭证值取 `build-config.json.credentials`，不跨智能体合并。
 - **Environment**：`packages`/`env` 从各包 `environment.json` 合并（冲突阻断），`type`/`networking`/`env` 补充取 `build-config.json`。
 

@@ -44,6 +44,8 @@ def discover_skills(emp_dir: Path) -> list[tuple[str, Path]]:
             sid = ref.get("id")
             if not sid or sid in seen:
                 continue
+            if "." in sid:  # 注册表引用：不在包内，由 registry_resolved.json 解析，不在此上传
+                continue
             src = pkg / "skills" / sid
             if (src / "SKILL.md").exists():
                 seen[sid] = src

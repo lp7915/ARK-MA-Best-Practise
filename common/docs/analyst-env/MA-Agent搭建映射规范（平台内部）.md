@@ -340,7 +340,7 @@ topic-lab/ada-pm/
 | `main` 的引用 | 构建 `main` 时，把 `registry/agents.json` 里每条引用的 `range` 解析为确切版本，写入 `main` 的 `multiagent.agents[]`：`{ "type": "agent", "id": <ma_agent_id>, "version": <ma_agent_version> }`。**版本必须显式写入**（实测：写入后固定，不写时取创建时的最新版并固定） |
 | 创建顺序 | 先创建（或确认已发布）各 `sub`，拿到 ID 与版本，再创建 `main`（实测：子 Agent 与版本须已存在）。与 `topic5/ma-resources/create_all.sh` 一致 |
 | 可见范围 | `sub` 的 `visibility` 固定为 `internal`（接收校验 12），线上用户只通过 `main` 触达；`main` 可为 `public` 或 `internal`。`internal` 的智能体发布到 prod 前检查其渠道白名单非空（接收校验 17）；dev、staging 不限制，便于调试 |
-| `multiagent` 写法 | `type: coordinator`（MA 的字段取值，与业务方的角色命名无关）；写入时整体覆写 `multiagent.agents`；不使用 `type: self` |
+| `multiagent` 写法 | `type: coordinator`（MA 的字段取值，与业务方的角色命名无关）；写入时整体覆写 `multiagent.agents`；**允许 `type: self`**（用户 2026-11 指令放开）：`main` 的 `registry/agents.json` 里写保留 id `self`（`{ "id": "self" }`，无需 `range`），构建器展开为 `{ "type": "self" }`，位置按声明顺序，表示 `main` 可并发委派自身；`self` 不占智能体包、不计入容量，仅 `role: main` 可声明 |
 | 字段类型（易踩坑，两处相反） | **`skills[].version` 是字符串**（如 `"1"`）；**`multiagent.agents[].version` 是 int32**（如 `1`）。写反会 400 `InvalidPayload`（`Mismatch type string/int32 with value …`）。两处都可省略（省略=当期最新版，创建后固定），但显式写是对的做法 |
 | 分派规则 | 在 `main` 的 `orchestration.md` 里由业务方书写，用别名称呼 `sub`；平台不生成、不改写（6.2.1） |
 | 命名与元数据 | 命名 `<business-line-id>-<emp>-<agent>`（4.3）；元数据带 `ma-registry.agent`、`agent-role`、`visibility`（4.4） |

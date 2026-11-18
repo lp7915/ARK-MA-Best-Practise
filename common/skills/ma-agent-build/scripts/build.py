@@ -47,6 +47,26 @@ DEFAULT_TOOLS = [
 ]
 
 
+_VAR = re.compile(r"\$\{([A-Z0-9_]+)\}")
+
+
+def expand_vars(obj, missing: set):
+    """递归展开 ${VAR}（取环境变量）；未设置的收集到 missing，由调用方统一报错。"""
+    if isinstance(obj, str):
+        def r(m):
+            v = os.environ.get(m.group(1))
+            if v is None:
+                missing.add(m.group(1))
+                return m.group(0)
+            return v
+        return _VAR.sub(r, obj)
+    if isinstance(obj, dict):
+        return {k: expand_vars(v, missing) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [expand_vars(v, missing) for v in obj]
+    return obj
+
+
 # ---------------------------------------------------------------- HTTP 工具
 def auth_headers() -> dict:
     api_key = os.environ.get("ARK_API_KEY")
@@ -135,6 +155,8 @@ def discover(emp_dir: Path) -> tuple[str, str, dict[str, dict], list[str]]:
     if agents_json.exists():
         for ref in json.loads(agents_json.read_text(encoding="utf-8")):
             rid = ref.get("id", "")
+            if rid == "self":  # 保留 id：main 并发委派自身，不是智能体包
+                continue
             if rid in packages and rid != main_id:
                 sub_order.append(rid)
     for name in sorted(packages):
@@ -304,6 +326,8 @@ def ensure_environment(cfg: dict, business_line: str, employee: str, update: boo
         "packages": merged_env.get("packages", {}),
         "env": {**merged_env.get("env", {}), **base.get("env", {})},
     }
+    if base.get("setup_script"):  # 例如装 lark-cli；属平台侧环境配置
+        config["setup_script"] = base["setup_script"]
     env_id = find_by_name("environments", name)
     if env_id:
         if update:
@@ -387,6 +411,7 @@ def agent_config(cfg: dict, business_line: str, employee: str, pkg_name: str, sy
         "model": cfg["model"],
         "system": system,
         "tools": cfg.get("tools", DEFAULT_TOOLS),
+        **({"mcp_servers": cfg["mcp_servers"]} if cfg.get("mcp_servers") and meta.get("role") == "main" else {}),
         "metadata": {
             "managed_by": "ma-build",
             "topic": business_line,
@@ -402,15 +427,17 @@ def agent_config(cfg: dict, business_line: str, employee: str, pkg_name: str, sy
     if sj.exists():
         refs = json.loads(sj.read_text(encoding="utf-8"))
         # skills[].version 必须是字符串（区别于 multiagent 的 int32）
+        missing = [r["id"] for r in refs if not (skill_ids.get(r["id"]) or {}).get("skill_id")]
+        if missing:
+            raise RuntimeError(f"{pkg_name}: skills.json 引用了未解析的 skill {missing}（先上传，或在 registry_resolved.json 登记）")
         out["skills"] = [
             {"type": "custom", "skill_id": skill_ids[r["id"]]["skill_id"], "version": str(skill_ids[r["id"]]["version"])}
             for r in refs
-            if r["id"] in skill_ids and skill_ids[r["id"]].get("skill_id")
         ]
     return out
 
 
-def create_agent(cfg: dict, business_line: str, employee: str, pkg_name: str, system: str, skill_ids: dict, subs: dict | None, rebuild: bool) -> dict:
+def create_agent(cfg: dict, business_line: str, employee: str, pkg_name: str, system: str, skill_ids: dict, subs: dict | None, rebuild: bool, allow_self: bool = False) -> dict:
     name = f"{business_line}-{employee}-{pkg_name}"
     existing = find_by_name("agents", name)
     if existing and not rebuild:
@@ -421,11 +448,11 @@ def create_agent(cfg: dict, business_line: str, employee: str, pkg_name: str, sy
         print(f"  删除旧 Agent {name} -> {existing} 以便重建")
     ac = agent_config(cfg, business_line, employee, pkg_name, system, skill_ids)
     if subs is not None:
-        ac["multiagent"] = {
-            "type": "coordinator",
-            # multiagent.agents[].version 是 int32（区别于 skills[].version 的字符串）
-            "agents": [{"type": "agent", "id": subs[a]["id"], "version": subs[a]["version"]} for a in subs],
-        }
+        # multiagent.agents[].version 是 int32（区别于 skills[].version 的字符串）
+        agents = [{"type": "agent", "id": subs[a]["id"], "version": subs[a]["version"]} for a in subs]
+        if allow_self:  # main 的 registry/agents.json 声明了保留 id self
+            agents.append({"type": "self"})
+        ac["multiagent"] = {"type": "coordinator", "agents": agents}
     resp = ark_post("/agents", ac)
     aid = unwrap_id(resp)
     data = resp.get("data") if isinstance(resp.get("data"), dict) else resp
@@ -451,7 +478,14 @@ def main() -> int:
     if args.stage:
         cfg["stage"] = args.stage
     cfg["_pkg_dirs"] = {name: emp_dir / name for name in order}
-    credential_values = cfg.get("credentials", {})
+    missing: set = set()
+    cfg["environment"] = expand_vars(cfg.get("environment", {}), missing)
+    cfg["mcp_servers"] = expand_vars(cfg.get("mcp_servers", []), missing)
+    if missing and not args.plan:
+        raise RuntimeError(f"build-config 引用的变量未设置：{sorted(missing)}（导出到环境变量后重试；--plan 可忽略）")
+    if missing:
+        print(f"[plan] 以下变量尚未设置（真实构建会阻断）：{sorted(missing)}")
+    credential_values = {**cfg.get("credentials", {}), **{k: os.environ[k] for k in ("DATAHUB_API_KEY", "LLM_RELAY_API_KEY", "BLUEAI_API_KEY") if os.environ.get(k)}}
     if not cfg.get("model"):
         raise RuntimeError("build-config.json 缺少 model 字段")
 
@@ -459,6 +493,11 @@ def main() -> int:
     sid_file = emp_dir / "skill_ids.json"
     if sid_file.exists():
         skill_ids = json.loads(sid_file.read_text(encoding="utf-8")).get("skills", {})
+    # 引用注册表的可复用 skill：skills.json 里 id 是注册表 atomic_id（含 "."），由中台解析并锁定。
+    # 过渡机制：读 registry_resolved.json（atomic_id → {skill_id, version}），等价于「构建时解析+锁定」。
+    rr_file = emp_dir / "registry_resolved.json"
+    if rr_file.exists():
+        skill_ids.update(json.loads(rr_file.read_text(encoding="utf-8")).get("skills", {}))
 
     # 知识库序号：全局统一分配（先 main，再 order 顺序），每包每个 root +1
     memory_plan: list[tuple[str, str, Path, str]] = []  # (pkg_name, root, pkg_dir, store_name)
@@ -522,7 +561,9 @@ def main() -> int:
     # 6) 创建 main Agent（multiagent 引用全部 sub）
     print("==== 6) 创建 main Agent ====")
     main_id_pkg = order[0]
-    main_agent = create_agent(cfg, business_line, employee, main_id_pkg, systems[main_id_pkg], skill_ids, subs=subs, rebuild=args.rebuild_agents)
+    main_refs = json.loads((emp_dir / main_id_pkg / "registry" / "agents.json").read_text(encoding="utf-8")) if (emp_dir / main_id_pkg / "registry" / "agents.json").exists() else []
+    allow_self = any(r.get("id") == "self" for r in main_refs)
+    main_agent = create_agent(cfg, business_line, employee, main_id_pkg, systems[main_id_pkg], skill_ids, subs=subs, rebuild=args.rebuild_agents, allow_self=allow_self)
 
     result = {
         "business_line": business_line,

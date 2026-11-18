@@ -39,7 +39,7 @@
 ## multiagent
 
 - 只展开一层；`main` 引用 `sub`，`sub` 不再引用别人
-- `type: coordinator`，`agents[]` 显式写 `id` + `version`（int32），**不使用 `type:self`**
+- `type: coordinator`，`agents[]` 显式写 `id` + `version`（int32）；**允许 `type:self`**：`main` 的 `registry/agents.json` 写 `{"id":"self"}`，展开为 `{"type":"self"}`（仅 main）
 - 创建顺序：先 sub、后 main（子 Agent 版本须已存在）
 
 ## 平台侧字段（不进业务包）
