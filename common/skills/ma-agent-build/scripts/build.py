@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -447,15 +448,31 @@ def agent_config(cfg: dict, business_line: str, employee: str, pkg_name: str, sy
     return out
 
 
+def _agent_changed(current: dict, new: dict) -> bool:
+    """对比当前 MA Agent 与新配置是否一致（决定是否原地更新）。只比关键字段，忽略服务端补充。"""
+    if (current.get("system") or "").strip() != (new.get("system") or "").strip():
+        return True
+    for key in ("description", "visibility"):
+        if current.get(key) != new.get(key):
+            return True
+    def _skills(d: dict):
+        return sorted((s.get("skill_id"), str(s.get("version"))) for s in (d.get("skills") or []) if isinstance(s, dict))
+    if _skills(current) != _skills(new):
+        return True
+    def _subs(d: dict):
+        ma = d.get("multiagent") or {}
+        return sorted((a.get("type"), a.get("id"), a.get("version")) for a in (ma.get("agents") or []) if isinstance(a, dict))
+    if _subs(current) != _subs(new):
+        return True
+    cm, nm = current.get("metadata") or {}, new.get("metadata") or {}
+    for k in ("role", "visibility", "spec", "stage", "agent", "employee", "topic"):
+        if cm.get(k) != nm.get(k):
+            return True
+    return False
+
+
 def create_agent(cfg: dict, business_line: str, employee: str, pkg_name: str, system: str, skill_ids: dict, subs: dict | None, rebuild: bool, allow_self: bool = False) -> dict:
     name = f"{business_line}-{employee}-{pkg_name}"
-    existing = find_by_name("agents", name)
-    if existing and not rebuild:
-        print(f"  Agent 已存在(复用): {name} -> {existing}")
-        return {"id": existing, "version": 1}
-    if existing and rebuild:
-        ark_delete(f"/agents/{existing}")
-        print(f"  删除旧 Agent {name} -> {existing} 以便重建")
     ac = agent_config(cfg, business_line, employee, pkg_name, system, skill_ids)
     if subs is not None:
         # multiagent.agents[].version 是 int32（区别于 skills[].version 的字符串）
@@ -463,12 +480,59 @@ def create_agent(cfg: dict, business_line: str, employee: str, pkg_name: str, sy
         if allow_self:  # main 的 registry/agents.json 声明了保留 id self
             agents.append({"type": "self"})
         ac["multiagent"] = {"type": "coordinator", "agents": agents}
-    resp = ark_post("/agents", ac)
-    aid = unwrap_id(resp)
-    data = resp.get("data") if isinstance(resp.get("data"), dict) else resp
-    ver = int(data.get("version") or 1)
-    print(f"  Agent 已创建: {name} -> {aid} (version={ver})")
-    return {"id": aid, "version": ver}
+
+    existing = find_by_name("agents", name)
+    if existing is None or rebuild:
+        if existing and rebuild:
+            ark_delete(f"/agents/{existing}")
+            print(f"  删除旧 Agent {name} -> {existing} 以便重建")
+        resp = ark_post("/agents", ac)
+        aid = unwrap_id(resp)
+        data = resp.get("data") if isinstance(resp.get("data"), dict) else resp
+        ver = int(data.get("version") or 1)
+        print(f"  Agent 已创建: {name} -> {aid} (version={ver})")
+        return {"id": aid, "version": ver}
+
+    # 已存在：对比后原地更新（POST /agents/{id} 带当前 version，id 不变、version 自增）
+    cur_resp = ark_get(f"/agents/{existing}")
+    cur = cur_resp.get("data") if isinstance(cur_resp.get("data"), dict) else cur_resp
+    cur_version = int(cur.get("version") or 1)
+    if _agent_changed(cur, ac):
+        resp = ark_post(f"/agents/{existing}", {**ac, "version": cur_version})
+        data = resp.get("data") if isinstance(resp.get("data"), dict) else resp
+        ver = int(data.get("version") or (cur_version + 1))
+        print(f"  Agent 已更新: {name} -> {existing} (version={ver})")
+        return {"id": existing, "version": ver}
+    print(f"  Agent 无变化(复用): {name} -> {existing} (version={cur_version})")
+    return {"id": existing, "version": cur_version}
+
+
+def register_to_registry(cfg: dict, business_line: str, employee: str, pkg_name: str, agent_info: dict, system: str) -> None:
+    """发布/更新后登记版本到原子注册表（MVP：飞书多维表格）。失败只 warn，不阻断构建。"""
+    try:
+        from registry import register_agent_version
+    except Exception as e:  # noqa: BLE001 - 无 registry 模块/packaging 依赖缺失时跳过
+        print(f"  [warn] 登记注册表跳过: {e}")
+        return
+    meta = json.loads((cfg["_pkg_dirs"][pkg_name] / "registry" / "agent.json").read_text(encoding="utf-8"))
+    atomic_id = f"{business_line}.{employee}.{pkg_name}"
+    fp = hashlib.sha256(system.encode("utf-8")).hexdigest()[:32]
+    try:
+        register_agent_version(
+            atomic_id=atomic_id,
+            owner_topic=business_line,
+            semver=str(meta.get("version", "0.0.0")),
+            role=str(meta.get("role", "sub")),
+            visibility=str(meta.get("visibility", "internal")),
+            ma_agent_id=agent_info["id"],
+            ma_agent_version=agent_info["version"],
+            package_url="",
+            sha256=fp,
+            fingerprint=fp,
+        )
+        print(f"  已登记注册表: {atomic_id} v{meta.get('version')} -> {agent_info['id']}@{agent_info['version']}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  [warn] 登记注册表失败（不阻断）: {e}")
 
 
 # ---------------------------------------------------------------- 主流程
@@ -567,6 +631,7 @@ def main() -> int:
         if packages[pkg_name].get("role") == "main":
             continue
         subs[pkg_name] = create_agent(cfg, business_line, employee, pkg_name, systems[pkg_name], skill_ids, subs=None, rebuild=args.rebuild_agents)
+        register_to_registry(cfg, business_line, employee, pkg_name, subs[pkg_name], systems[pkg_name])
 
     # 6) 创建 main Agent（multiagent 引用全部 sub）
     print("==== 6) 创建 main Agent ====")
@@ -574,6 +639,7 @@ def main() -> int:
     main_refs = json.loads((emp_dir / main_id_pkg / "registry" / "agents.json").read_text(encoding="utf-8")) if (emp_dir / main_id_pkg / "registry" / "agents.json").exists() else []
     allow_self = any(r.get("id") == "self" for r in main_refs)
     main_agent = create_agent(cfg, business_line, employee, main_id_pkg, systems[main_id_pkg], skill_ids, subs=subs, rebuild=args.rebuild_agents, allow_self=allow_self)
+    register_to_registry(cfg, business_line, employee, main_id_pkg, main_agent, systems[main_id_pkg])
 
     result = {
         "business_line": business_line,
