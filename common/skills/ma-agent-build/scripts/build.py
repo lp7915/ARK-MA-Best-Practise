@@ -438,13 +438,26 @@ def agent_config(cfg: dict, business_line: str, employee: str, pkg_name: str, sy
     if sj.exists():
         refs = json.loads(sj.read_text(encoding="utf-8"))
         # skills[].version 必须是字符串（区别于 multiagent 的 int32）
-        missing = [r["id"] for r in refs if not (skill_ids.get(r["id"]) or {}).get("skill_id")]
-        if missing:
-            raise RuntimeError(f"{pkg_name}: skills.json 引用了未解析的 skill {missing}（先上传，或在 registry_resolved.json 登记）")
-        out["skills"] = [
-            {"type": "custom", "skill_id": skill_ids[r["id"]]["skill_id"], "version": str(skill_ids[r["id"]]["version"])}
-            for r in refs
-        ]
+        skills_out = []
+        local_missing = []
+        for r in refs:
+            rid = r.get("id", "")
+            rng = r.get("range", "*")
+            if "." in rid:  # 注册表原子能力引用：读飞书多维表格解析
+                from registry import resolve_skill_ref
+                got = resolve_skill_ref(rid, rng)
+                if not got or not got[0]:
+                    raise RuntimeError(f"{pkg_name}: 注册表 skill {rid} 无法解析（range={rng}）")
+                skills_out.append({"type": "custom", "skill_id": got[0], "version": str(got[1])})
+            else:  # 本地私有 skill：pack_skills 上传
+                local = skill_ids.get(rid) or {}
+                if not local.get("skill_id"):
+                    local_missing.append(rid)
+                    continue
+                skills_out.append({"type": "custom", "skill_id": local["skill_id"], "version": str(local["version"])})
+        if local_missing:
+            raise RuntimeError(f"{pkg_name}: skills.json 引用了未上传的本地 skill {local_missing}（先跑 pack_skills.py）")
+        out["skills"] = skills_out
     return out
 
 
@@ -595,11 +608,7 @@ def main() -> int:
     sid_file = emp_dir / "skill_ids.json"
     if sid_file.exists():
         skill_ids = json.loads(sid_file.read_text(encoding="utf-8")).get("skills", {})
-    # 引用注册表的可复用 skill：skills.json 里 id 是注册表 atomic_id（含 "."），由中台解析并锁定。
-    # 过渡机制：读 registry_resolved.json（atomic_id → {skill_id, version}），等价于「构建时解析+锁定」。
-    rr_file = emp_dir / "registry_resolved.json"
-    if rr_file.exists():
-        skill_ids.update(json.loads(rr_file.read_text(encoding="utf-8")).get("skills", {}))
+    # 含 "." 的注册表 skill 引用，在 agent_config 里经 registry.resolve_skill_ref 实时解析（不再走本地过渡文件）。
 
     # 知识库序号：全局统一分配（先 main，再 order 顺序），每包每个 root +1
     memory_plan: list[tuple[str, str, Path, str]] = []  # (pkg_name, root, pkg_dir, store_name)
