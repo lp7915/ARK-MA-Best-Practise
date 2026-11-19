@@ -24,16 +24,10 @@ import re
 import sys
 from pathlib import Path
 
-import requests
-
 try:
     import yaml  # connections.yaml 用（PyYAML）；不可用时退化到 json 解析
 except ImportError:  # pragma: no cover
     yaml = None
-
-_raw_base = os.environ.get("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3").rstrip("/")
-BASE_URL = _raw_base if _raw_base.endswith("/api/v3") else f"{_raw_base}/api/v3"
-ARK_BETA = "agentic-2026-06-01"
 
 # 默认工具集：与映射规范 6.2.2 实测一致，全部启用但关闭 web（demo 无外网）。
 DEFAULT_TOOLS = [
@@ -68,63 +62,11 @@ def expand_vars(obj, missing: set):
     return obj
 
 
-# ---------------------------------------------------------------- HTTP 工具
-def auth_headers() -> dict:
-    api_key = os.environ.get("ARK_API_KEY")
-    if not api_key:
-        raise RuntimeError("请设置 ARK_API_KEY")
-    return {"Authorization": f"Bearer {api_key}", "X-Ark-Beta": ARK_BETA, "Accept": "application/json"}
-
-
-def ark_get(path: str) -> dict:
-    r = requests.get(BASE_URL + path, headers=auth_headers(), timeout=90)
-    if r.status_code >= 400:
-        return {"_err": r.status_code, "_body": r.text[:300]}
-    return r.json()
-
-
-def ark_post(path: str, body: dict) -> dict:
-    r = requests.post(BASE_URL + path, headers=auth_headers(), data=json.dumps(body, ensure_ascii=False).encode("utf-8"), timeout=120)
-    if r.status_code >= 400:
-        print(f"  [HTTP {r.status_code}] POST {path}: {r.text[:500]}", file=sys.stderr)
-        raise RuntimeError(f"HTTP {r.status_code}")
-    return r.json()
-
-
-def ark_delete(path: str) -> None:
-    requests.delete(BASE_URL + path, headers=auth_headers(), timeout=60)
-
-
-def unwrap_id(payload: dict) -> str:
-    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-    return str(data.get("id") or data.get("agent_id") or data.get("environment_id") or "")
-
-
-def payload_to_items(payload: dict) -> list:
-    data = payload.get("data")
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        return data.get("items") or []
-    if isinstance(payload.get("items"), list):
-        return payload["items"]
-    return payload if isinstance(payload, list) else []
-
-
-def find_by_name(collection: str, name: str) -> str | None:
-    page = ""
-    while True:
-        q = f"?page_size=200" + (f"&page={page}" if page else "")
-        body = ark_get(f"/{collection}{q}")
-        if isinstance(body, dict) and "_err" in body:
-            return None
-        for it in payload_to_items(body):
-            if it.get("name") == name or it.get("display_name") == name:
-                return str(it.get("id") or "")
-        nxt = body.get("next_page") if isinstance(body, dict) else None
-        if not nxt:
-            return None
-        page = nxt
+# ---------------------------------------------------------------- HTTP 工具（已抽到 ma_api.py）
+from ma_api import (  # noqa: E402
+    BASE_URL, ark_delete, ark_get, ark_post, auth_headers, find_by_name, list_all,
+    payload_to_items, unwrap_data, unwrap_id,
+)
 
 
 # ---------------------------------------------------------------- 目录发现
