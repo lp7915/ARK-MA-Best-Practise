@@ -215,7 +215,10 @@ def resolve_version(capability_record_id: str, range_: str) -> dict | None:
 
 def register_agent_version(atomic_id: str, owner_topic: str, semver: str, role: str, visibility: str,
                             ma_agent_id: str, ma_agent_version: int, package_url: str, sha256: str, fingerprint: str) -> str:
-    """登记一个 agent 语义版本：确保能力 + 版本表 append 一条（address 含 ma_agent_id/version）。"""
+    """登记一个 agent 语义版本：确保能力 + 版本表 append 一条（address 含 ma_agent_id/version）。
+
+    幂等：同一语义版本 + 同一 fingerprint 且已 released 的不重复登记；同版本但内容变则提示业务方升版本。
+    """
     cap_id = register_capability(atomic_id, owner_topic, "agent", atomic_id.split(".")[-1], atomic_id.split(".")[-1])
     address = {
         "package_url": package_url,
@@ -225,6 +228,16 @@ def register_agent_version(atomic_id: str, owner_topic: str, semver: str, role: 
         "ma_agent_id": ma_agent_id,
         "ma_agent_version": str(ma_agent_version),
     }
+    same_ver = []
+    for v in list_versions(cap_id):
+        f = v.get("fields", {})
+        if f.get("version") != semver:
+            continue
+        same_ver.append(v)
+        if f.get("fingerprint") == fingerprint and f.get("status") == "released":
+            return v["record_id"]  # 完全一致，幂等跳过
+    if same_ver:
+        print(f"  [warn] {atomic_id} v{semver} 内容变化但语义版本未升（已有 {len(same_ver)} 条同名记录），仍然登记新版本")
     return register_version(cap_id, semver, address, fingerprint)
 
 

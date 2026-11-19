@@ -535,6 +535,34 @@ def register_to_registry(cfg: dict, business_line: str, employee: str, pkg_name:
         print(f"  [warn] 登记注册表失败（不阻断）: {e}")
 
 
+def _resolve_sub_refs(business_line: str, employee: str, main_refs: list, memory_subs: dict) -> dict:
+    """main 引用 sub：优先从注册表按 range 解析确切版本，失败 fallback 刚构建的内存版本。"""
+    try:
+        from registry import resolve_agent_ref
+    except Exception:  # noqa: BLE001
+        resolve_agent_ref = None
+    resolved: dict = {}
+    for r in main_refs:
+        rid = r.get("id", "")
+        if rid == "self":
+            continue
+        alias = r.get("alias", rid)
+        rng = r.get("range", "*")
+        got = None
+        if resolve_agent_ref:
+            try:
+                got = resolve_agent_ref(f"{business_line}.{employee}.{rid}", rng)
+            except Exception:  # noqa: BLE001
+                got = None
+        if got and got[0]:
+            resolved[alias] = {"id": got[0], "version": got[1]}
+        elif rid in memory_subs:
+            resolved[alias] = memory_subs[rid]
+        else:
+            raise RuntimeError(f"main 引用 {rid} 无法解析：注册表无匹配版本，且本次未构建该 sub")
+    return resolved
+
+
 # ---------------------------------------------------------------- 主流程
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -638,7 +666,8 @@ def main() -> int:
     main_id_pkg = order[0]
     main_refs = json.loads((emp_dir / main_id_pkg / "registry" / "agents.json").read_text(encoding="utf-8")) if (emp_dir / main_id_pkg / "registry" / "agents.json").exists() else []
     allow_self = any(r.get("id") == "self" for r in main_refs)
-    main_agent = create_agent(cfg, business_line, employee, main_id_pkg, systems[main_id_pkg], skill_ids, subs=subs, rebuild=args.rebuild_agents, allow_self=allow_self)
+    resolved_subs = _resolve_sub_refs(business_line, employee, main_refs, subs)
+    main_agent = create_agent(cfg, business_line, employee, main_id_pkg, systems[main_id_pkg], skill_ids, subs=resolved_subs, rebuild=args.rebuild_agents, allow_self=allow_self)
     register_to_registry(cfg, business_line, employee, main_id_pkg, main_agent, systems[main_id_pkg])
 
     result = {
