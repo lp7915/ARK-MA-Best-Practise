@@ -1,0 +1,12 @@
+{
+  "id": "topic-lab.ada-pm.pm",
+  "version": "1.2.0",
+  "role": "main",
+  "visibility": "public",
+  "owner": {
+    "team": "Ada 项目维护方",
+    "primary": "待指定",
+    "backup": "待指定"
+  },
+  "description": "持续对话、确认、交接、回收和统一交付；不代写专业判断"
+}

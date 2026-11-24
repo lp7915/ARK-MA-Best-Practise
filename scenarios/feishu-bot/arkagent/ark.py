@@ -562,6 +562,7 @@ class ArkClient:
         env_overrides: Optional[dict[str, str]] = None,
         resources: Optional[list[dict]] = None,
         title: str = "",
+        output_tos: Optional[dict] = None,
     ) -> str:
         """一次成型：卡点 B（env_overrides 注入 OpenID）+ A（vault_ids）+ D（resources 挂 Memory Store）。"""
         vault_ids = vault_ids or []
@@ -571,15 +572,20 @@ class ArkClient:
         body: dict = {"agent": agent_id}
         if title:
             body["title"] = title
-        if env_overrides:
-            # 卡点 B：会话级环境变量透传（environment_with_overrides）。
+        if env_overrides or output_tos:
+            # 卡点 B：会话级环境变量透传；output_tos：本会话产物写入指定 TOS
+            # （均走 environment_with_overrides，不修改可复用的 Environment）。
             with time_block("ark.get_environment_config", env=environment_id):
                 environment_config = await self.get_environment_config(environment_id)
-            merged_env = {**(environment_config.get("env") or {}), **env_overrides}
+            override_config = dict(environment_config)
+            if env_overrides:
+                override_config["env"] = {**(environment_config.get("env") or {}), **env_overrides}
+            if output_tos:
+                override_config["tos"] = output_tos
             body["environment"] = {
                 "id": environment_id,
                 "type": "environment_with_overrides",
-                "config": {**environment_config, "env": merged_env},
+                "config": override_config,
             }
         else:
             body["environment_id"] = environment_id
@@ -860,7 +866,7 @@ class ArkClient:
         self,
         session_id: str,
         text: str,
-        timeout_ms: int,
+        timeout_ms: Optional[int],
         on_progress: Optional[Callable[[str], Awaitable[None]]] = None,
         system_message: Optional[str] = None,
         custom_tool_handler: Optional[
@@ -962,7 +968,10 @@ class ArkClient:
                             )
                 raise ArkError("事件流结束，但未观察到 Session 终态")
 
-            return await asyncio.wait_for(_drive(), timeout=timeout_ms / 1000)
+            # timeout_ms 为 None：不设等待上限，只在 Session 自身到终态（idle/失败/终止）或事件流异常时返回。
+            return await asyncio.wait_for(
+                _drive(), timeout=None if timeout_ms is None else timeout_ms / 1000
+            )
         except (asyncio.TimeoutError, httpx.ReadTimeout):
             recovered = await self._recover_timed_out_run(session_id, started_at)
             if recovered:

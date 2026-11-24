@@ -1,0 +1,3 @@
+roots:
+  - path: knowledge
+    description: 稳定业务规则、模板、模拟 Topic 契约与回归情节

@@ -1,0 +1,243 @@
+scope: MA规范资源包上传构建后的真实Agent集群最低验收；业务材料可合成，Agent调用/命令/文件回传必须实际发生
+version: 1.2.0
+execution_status: 未执行：等待受检环境按用例执行；不以期望冒充通过
+cases:
+- id: DEMO-01
+  title: 完整社媒Topic的最低串联
+  category: 正常
+  route: dispatch
+  agents:
+  - pm
+  - t
+  - validator
+  - s
+  input: 采用fixture.social_event；发起人确认当前版本后推进各节点。
+  expected: t→validator→s→PM；5原始/4有效/3去重；地区华东2华北1，情绪各1；Context、阶段产物、指定产物检查与交付可追溯；外部动作不得伪报。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/normal.md
+  required_resources:
+  - registry/agents.json
+  - registry/skills.json
+  - identity/pm/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/handoff.pm-worker.json
+  - io/contracts/output.worker-result.json
+  - io/contracts/output.delivery.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  - io/contracts/output.validation.json
+  platform_conclusion: 未执行
+  execution_requirement: 分派场景必须有实际MA子Agent及命令/文件回执；禁止用单进程模拟角色完成代替
+- id: DEMO-02
+  title: 完整人群Topic的最低串联
+  category: 正常
+  route: dispatch
+  agents:
+  - pm
+  - t
+  - validator
+  - s
+  input: 使用fixture中评论表投影id/region的人群变体，topic=audience，明确请求完整人群报告并确认。
+  expected: t→validator→s→PM；地区华东2华北1；不臆造年龄/性别/购买意图；独立返回来源与限制。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/normal.md
+  required_resources:
+  - registry/agents.json
+  - registry/skills.json
+  - identity/pm/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/handoff.pm-worker.json
+  - io/contracts/output.worker-result.json
+  - io/contracts/output.delivery.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  - io/contracts/output.validation.json
+  platform_conclusion: 未执行
+  execution_requirement: 分派场景必须有实际MA子Agent及命令/文件回执；禁止用单进程模拟角色完成代替
+- id: DEMO-03
+  title: 只对评论去重的误路由反例
+  category: 边界
+  route: dispatch
+  agents:
+  - pm
+  - g
+  - s
+  input: 同一合成表只按id去重，不做完整报告；topic=null、action=deduplicate。
+  expected: 只走g→s→PM，不启动t；5原始→4有效→3去重；g不扩写完整社媒报告。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/boundary.md
+  required_resources:
+  - registry/agents.json
+  - registry/skills.json
+  - identity/pm/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/handoff.pm-worker.json
+  - io/contracts/output.worker-result.json
+  - io/contracts/output.delivery.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  - io/contracts/output.validation.json
+  platform_conclusion: 未执行
+  execution_requirement: 分派场景必须有实际MA子Agent及命令/文件回执；禁止用单进程模拟角色完成代替
+- id: DEMO-04
+  title: 完整Topic与独立局部工作
+  category: 正常
+  route: dispatch
+  agents:
+  - pm
+  - t
+  - g
+  - validator
+  - s
+  input: social_event加独立registration_dataset，action=aggregate、extra_dataset为报名表。
+  expected: 形成t+g；t/g输入和Context分开；评论地区2/1、报名华南2华东1各有分母；结果及必要检查齐后才s；交付两项不遗漏。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/mixed.md
+  required_resources:
+  - registry/agents.json
+  - registry/skills.json
+  - identity/pm/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/handoff.pm-worker.json
+  - io/contracts/output.worker-result.json
+  - io/contracts/output.delivery.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  - io/contracts/output.validation.json
+  platform_conclusion: 未执行
+  execution_requirement: 分派场景必须有实际MA子Agent及命令/文件回执；禁止用单进程模拟角色完成代替
+- id: DEMO-05
+  title: 人工h最终整合不重复s
+  category: 边界
+  route: dispatch
+  agents:
+  - pm
+  - t
+  - validator
+  input: 完整评论报告另需能力外线下访谈解释，human=true；确认自动先行选择，由真实测试参与者以人工身份提交合成承接和同版完整回传。
+  expected: 保存人工评估/承接/回传，最终整合等自动依赖；h完成后直接PM交付，不调用s；人工素材/旧版/缺证据回传不能关闭需求。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/human.md
+  required_resources:
+  - registry/agents.json
+  - registry/skills.json
+  - identity/pm/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/handoff.pm-worker.json
+  - io/contracts/output.worker-result.json
+  - io/contracts/output.delivery.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  - io/contracts/output.validation.json
+  platform_conclusion: 未执行
+  execution_requirement: 分派场景必须有实际MA子Agent及命令/文件回执；禁止用单进程模拟角色完成代替
+- id: DEMO-06
+  title: 三轮澄清与执行缺项
+  category: 失败
+  route: direct
+  agents:
+  - pm
+  input: 依次输入帮我做个分析、分析甲品牌消费者、完整报告；每轮恢复上一轮状态。
+  expected: 依次追问对象与完整/局部；第三轮可形成t但周期和数据仍待补；确认前不派发、不产报告；补齐材料后才生成可确认方案。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/clarification.md
+  required_resources:
+  - registry/agents.json
+  - registry/skills.json
+  - identity/pm/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/handoff.pm-worker.json
+  - io/contracts/output.worker-result.json
+  - io/contracts/output.delivery.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  - io/contracts/output.validation.json
+  platform_conclusion: 未执行
+  execution_requirement: 分派场景必须有实际MA子Agent及命令/文件回执；禁止用单进程模拟角色完成代替
+- id: DEMO-07
+  title: 非发起人和旧版本确认被拒
+  category: 失败
+  route: direct
+  agents:
+  - pm
+  input: 准备完整有效方案后由协作者确认；另将方案修订后由发起人确认旧版。
+  expected: 两种无效确认均不启动，保留当前方案；重复同event同内容不重复生效，异内容拒绝覆盖。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/failure.md
+  required_resources:
+  - registry/agents.json
+  - registry/skills.json
+  - identity/pm/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/handoff.pm-worker.json
+  - io/contracts/output.worker-result.json
+  - io/contracts/output.delivery.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  - io/contracts/output.validation.json
+  platform_conclusion: 未执行
+  execution_requirement: 分派场景必须有实际MA子Agent及命令/文件回执；禁止用单进程模拟角色完成代替
+- id: DEMO-08
+  title: 必要检查失败时停止整合
+  category: 失败
+  route: dispatch
+  agents:
+  - pm
+  - t
+  - validator
+  input: 确认社媒方案并形成t阶段产物，对其注入缺文件/错误摘要或必要检查失败。
+  expected: 保留阶段证据与明确失败原因；不启动s，不形成成功最终交付，不用旧检查替代现版本检查。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/failure.md
+  required_resources:
+  - registry/agents.json
+  - registry/skills.json
+  - identity/pm/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/handoff.pm-worker.json
+  - io/contracts/output.worker-result.json
+  - io/contracts/output.delivery.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  - io/contracts/output.validation.json
+  platform_conclusion: 未执行
+  execution_requirement: 分派场景必须有实际MA子Agent及命令/文件回执；禁止用单进程模拟角色完成代替
+- id: DEMO-09
+  title: 新实例从持久记录接续
+  category: 接续
+  route: dispatch
+  agents:
+  - pm
+  - t
+  - validator
+  - s
+  input: 社媒流程完成t后重建宿主实例，从包外任务状态恢复；另测试路由证据或产物被篡改。
+  expected: 完整文件核对后只继续未完成检查和整合；不重复t；摘要/文件异常则待恢复，不宣称可继续；旧运行冻结版本保留。
+  acceptor: Ada 业务验收岗位（正式验收人待指定）
+  fixture_ref: knowledge/examples/fixture.md
+  procedure_ref: knowledge/examples/resume.md
+  required_resources:
+  - registry/agents.json
+  - registry/skills.json
+  - identity/pm/orchestration.md
+  - io/contracts/input.event.json
+  - io/contracts/handoff.pm-worker.json
+  - io/contracts/output.worker-result.json
+  - io/contracts/output.delivery.json
+  - knowledge/standards/platform.md
+  - skills/work-item/SKILL.md
+  - io/contracts/output.validation.json
+  platform_conclusion: 未执行
+  execution_requirement: 分派场景必须有实际MA子Agent及命令/文件回执；禁止用单进程模拟角色完成代替
+platform_preconditions:
+- 平台按registry/agents.json创建真实主/子Agent并挂载资源
+- 各角色可执行挂载Skill命令并访问已授权任务Workspace
+- 原生分派/回传及可信身份、持久化在构建回执确认

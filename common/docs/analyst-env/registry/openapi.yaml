@@ -1,0 +1,814 @@
+openapi: 3.0.3
+info:
+  title: 原子能力注册表 API（MVP）
+  version: 0.1.0
+  description: |
+    记录"团队 - 原子能力 - 描述 - 版本 - 被谁引用 - 地址"的注册表服务。
+
+    **MVP 范围**：共 11 个接口，回答三个问题——有哪些能力、各有哪些版本、哪个智能体用了哪个版本。
+    鉴权、构建流水线自动对接、版本范围自动解析、审核等不在 MVP 内。
+
+    对应设计文档：`../原子能力注册表设计.md`；建表脚本：`atomic-registry.schema.sql`。
+
+    **约定**
+    - 路径前缀 `/registry/v1`；请求与响应均为 JSON，时间为 UTC 的 RFC 3339 格式。
+    - 写接口必须带请求头 `X-Operator`（操作人）。**MVP 不校验其真实性。**
+    - 修改类接口带 `If-Match: <updated_at>`，不匹配返回 409。
+    - 请求与响应中**不得出现凭证值**。
+    - 错误统一为 `{code, message, details}`。
+servers:
+  - url: http://localhost:8080/registry/v1
+    description: 本地开发
+tags:
+  - name: capabilities
+    description: 原子能力
+  - name: versions
+    description: 原子能力版本
+  - name: refs
+    description: 原子能力与智能体的引用关系
+
+paths:
+  /capabilities:
+    post:
+      tags: [capabilities]
+      operationId: createCapability
+      summary: 登记原子能力
+      description: |
+        `atomic_id` 全局唯一，格式 `<owner_topic>.<name>`；前缀必须与 `owner_topic` 一致。
+        `owner_topic` 为业务线 ID 或中台保留标识 `platform`。
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CapabilityCreate'
+            example:
+              atomic_id: platform.report-cover
+              owner_topic: platform
+              type: skill
+              team: platform-data
+              owner_primary: zhangsan
+              owner_backup: lisi
+              description: 为分析报告生成封面图。输入报告标题与摘要，输出一张 PNG 封面。
+      responses:
+        '201':
+          description: 登记成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capability'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    get:
+      tags: [capabilities]
+      operationId: listCapabilities
+      summary: 查询原子能力列表
+      parameters:
+        - name: team
+          in: query
+          schema: { type: string }
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/CapabilityType' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/CapabilityStatus' }
+        - name: owner_topic
+          in: query
+          description: 提供方业务线 ID，或 `platform`
+          schema: { type: string }
+        - name: q
+          in: query
+          description: 名称或描述关键词
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapabilityPage'
+
+  /capabilities/{atomic_id}:
+    parameters:
+      - $ref: '#/components/parameters/AtomicId'
+    get:
+      tags: [capabilities]
+      operationId: getCapability
+      summary: 原子能力详情
+      description: 含最新 released 版本摘要。
+      responses:
+        '200':
+          description: 详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapabilityDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [capabilities]
+      operationId: updateCapability
+      summary: 修改团队、责任人、描述
+      description: '`atomic_id`、`owner_topic`、`type` 不可修改。'
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CapabilityUpdate'
+      responses:
+        '200':
+          description: 修改成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capability'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /capabilities/{atomic_id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/AtomicId'
+    post:
+      tags: [versions]
+      operationId: createVersion
+      summary: 新增版本
+      description: |
+        新增版本初始状态为 `draft`。
+
+        - 版本号必须唯一，且**大于**该能力已有的最高版本；
+        - `address`、`fingerprint` 必填，`address` 的必填字段随能力类型不同（见 `Address` 模型）；
+        - `depends_on` 中引用的能力必须存在；
+        - **内容写入后不再原地修改**，需要修改请新增版本。
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionCreate'
+            example:
+              version: 1.2.3
+              fingerprint: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+              address:
+                repo: git@example.com:platform/skills.git
+                path: report-cover
+                commit: 3a9c1e0b77d2f4a81c5e6d0b9a7f2e1d4c8b6a30
+                ma_skill_id: skill-20261102113310-xxxxx
+                ma_skill_version: '1'
+              depends_on: []
+              compat:
+                ma_toolset: agent_toolset_20260916
+              credentials:
+                - kind: api_key
+                  purpose: 调用封面生成服务
+              changelog: 修复长标题截断问题
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    get:
+      tags: [versions]
+      operationId: listVersions
+      summary: 版本列表
+      description: 按语义化版本倒序。
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/VersionStatus' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionPage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /capabilities/{atomic_id}/versions/{version}:
+    parameters:
+      - $ref: '#/components/parameters/AtomicId'
+      - $ref: '#/components/parameters/Version'
+    get:
+      tags: [versions]
+      operationId: getVersion
+      summary: 版本详情
+      description: 含当前 `active` 引用数。
+      responses:
+        '200':
+          description: 详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /capabilities/{atomic_id}/versions/{version}/transition:
+    parameters:
+      - $ref: '#/components/parameters/AtomicId'
+      - $ref: '#/components/parameters/Version'
+    post:
+      tags: [versions]
+      operationId: transitionVersion
+      summary: 变更版本状态
+      description: |
+        按状态机校验（设计文档第 4 节）。合法转换：
+
+        | 从 | 到 |
+        |---|---|
+        | `draft` | `candidate`、`released`、`retired` |
+        | `candidate` | `released`、`draft`、`retired` |
+        | `released` | `deprecated` |
+        | `deprecated` | `released`（撤销下线）、`retired` |
+        | `retired` | 无 |
+
+        额外规则：
+        - `released` → `deprecated`：必须带 `retire_after` 与 `replaced_by`（替代版本，可为空字符串表示无替代，但必须显式提供 `replaced_by` 字段）；
+        - → `retired`：该版本不得存在 `active` 引用，否则返回 422；
+        - `in_review`、`rejected` 为预留状态，MVP 不可达。
+
+        转换到 `released` 时，若该版本号高于当前最新 released 版本，同步更新能力的最新 released 版本。
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionTransition'
+            examples:
+              发布:
+                value: { to: released, reason: 验收通过 }
+              即将下线:
+                value:
+                  to: deprecated
+                  reason: 由 2.0.0 取代
+                  retire_after: '2027-03-01T00:00:00Z'
+                  replaced_by: 2.0.0
+      responses:
+        '200':
+          description: 状态已变更
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /refs:
+    put:
+      tags: [refs]
+      operationId: putRef
+      summary: 声明或更新引用，并指定锁定版本
+      description: |
+        同一个键 `(atomic_id, business_line_id, employee, agent, stage)` 只对应一条引用，按此键幂等。
+        本接口同时承担**声明、锁定、升级、回滚**。
+
+        | 情形 | 处理 | 引用历史动作 |
+        |---|---|---|
+        | 键不存在 | 新建；未带 `pinned_version` 时只声明范围 | `declare`（未锁定）/ `pin`（已锁定） |
+        | 键已存在，`pinned_version` 不变 | 只更新 `version_range`、`ma_agent_id`；**幂等，不写历史** | — |
+        | 键已存在，`pinned_version` 变大 | 更新锁定版本 | `upgrade` |
+        | 键已存在，`pinned_version` 变小 | 更新锁定版本；**`reason` 必填** | `rollback` |
+        | 此前被 `DELETE` 软删除 | 恢复为 `active`，再按上述规则判断 | 同上 |
+
+        版本大小按语义化版本三段数字比较，与字符串顺序无关。
+
+        **锁定规则**：
+        - `candidate` 版本不得锁定到 `prod`；
+        - `retired` 版本不得被新锁定；
+        - `draft` 版本不可被引用；
+        - 能力或版本不存在返回 422；
+        - **被引用的能力 `type=agent` 时做层数校验**（交付规范 2.3）：引用方智能体的 `role` 必须是 `main`，被引用的智能体 `role` 必须是 `sub`，两者的 `(business_line_id, employee)` 必须相同，且不能是同一个智能体；违反返回 422，错误码 `AGENT_REF_INVALID`。
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefPut'
+            example:
+              atomic_id: platform.report-cover
+              business_line_id: sales
+              employee: assistant
+              agent: pm
+              stage: prod
+              version_range: ^1.2.0
+              pinned_version: 1.2.3
+              ma_agent_id: agent-20261102113314-xxxxx
+              reason: 首次上线
+      responses:
+        '200':
+          description: 更新已有引用
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ref'
+        '201':
+          description: 新建引用
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ref'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    get:
+      tags: [refs]
+      operationId: listRefs
+      summary: 查询引用
+      description: |
+        同时用于三种场景：
+
+        | 想知道 | 调用 |
+        |---|---|
+        | 某能力某版本被哪些智能体锁定（升级影响面） | `?atomic_id=…&pinned_version=…&status=active` |
+        | 某智能体用了哪些能力、各是什么版本 | `?business_line_id=…&employee=…&agent=…&stage=…` |
+        | 某能力被谁引用 | `?atomic_id=…&status=active` |
+      parameters:
+        - name: atomic_id
+          in: query
+          schema: { type: string }
+        - name: pinned_version
+          in: query
+          description: 与 `atomic_id` 配合使用
+          schema: { type: string }
+        - name: business_line_id
+          in: query
+          schema: { type: string }
+        - name: employee
+          in: query
+          schema: { type: string }
+        - name: agent
+          in: query
+          schema: { type: string }
+        - name: stage
+          in: query
+          schema: { $ref: '#/components/schemas/Stage' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/RefStatus' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefPage'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /refs/{ref_id}:
+    parameters:
+      - name: ref_id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    delete:
+      tags: [refs]
+      operationId: deleteRef
+      summary: 移除引用
+      description: 软删除，置 `status=removed` 并写入引用历史（动作 `remove`），不物理删除。重复删除幂等。
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+      responses:
+        '200':
+          description: 已移除
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ref'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    Operator:
+      name: X-Operator
+      in: header
+      required: true
+      description: 操作人。MVP 不校验真实性，仅用于记录。
+      schema: { type: string, minLength: 1, maxLength: 64 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: 资源当前的 `updated_at`。不匹配返回 409。
+      schema: { type: string, format: date-time }
+    AtomicId:
+      name: atomic_id
+      in: path
+      required: true
+      description: 形如 `<owner_topic>.<name>`，如 `platform.report-cover`
+      schema: { $ref: '#/components/schemas/AtomicId' }
+    Version:
+      name: version
+      in: path
+      required: true
+      description: 语义化版本，如 `1.2.3`
+      schema: { $ref: '#/components/schemas/SemVer' }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  responses:
+    NotFound:
+      description: 不存在
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: NOT_FOUND, message: 原子能力不存在 }
+    Conflict:
+      description: 冲突（重复标识、重复版本号、`If-Match` 不匹配）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: ALREADY_EXISTS, message: atomic_id 已存在 }
+    Unprocessable:
+      description: 业务校验失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            code: INVALID_TRANSITION
+            message: 不允许从 released 回到 draft
+            details: { from: released, to: draft }
+
+  schemas:
+    # ---------- 基础 ----------
+    AtomicId:
+      type: string
+      pattern: '^[a-z0-9-]{3,24}\.[a-z0-9-]{3,48}(\.[a-z0-9-]{3,24})?$'
+      description: '普通能力为 `<owner_topic>.<name>`；`agent` 类型为 `<业务线ID>.<数字员工ID>.<智能体ID>`（三段）'
+      example: platform.report-cover
+    SemVer:
+      type: string
+      pattern: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+      description: 主.次.修订。MVP 不支持预发布与构建元数据后缀。
+      example: 1.2.3
+    Timestamp:
+      type: string
+      format: date-time
+    CapabilityType:
+      type: string
+      description: 新增类型时在此扩展，无需改表结构。
+      enum: [skill, tool, mcp, knowledge, template, agent]
+    CapabilityStatus:
+      type: string
+      enum: [active, archived]
+    VersionStatus:
+      type: string
+      description: '`in_review`、`rejected` 为预留，MVP 不会出现。'
+      enum: [draft, candidate, released, deprecated, retired, in_review, rejected]
+    Stage:
+      type: string
+      enum: [dev, staging, prod]
+    RefStatus:
+      type: string
+      enum: [active, removed]
+    RefAction:
+      type: string
+      enum: [declare, pin, upgrade, rollback, remove]
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: 业务错误码
+          enum:
+            - NOT_FOUND
+            - ALREADY_EXISTS
+            - STALE_WRITE
+            - VALIDATION_FAILED
+            - INVALID_ATOMIC_ID
+            - INVALID_VERSION
+            - VERSION_NOT_INCREASING
+            - INVALID_TRANSITION
+            - HAS_ACTIVE_REFS
+            - DEPENDENCY_NOT_FOUND
+            - VERSION_NOT_REFERENCEABLE
+            - ROLLBACK_REASON_REQUIRED
+            - AGENT_REF_INVALID
+        message: { type: string }
+        details:
+          type: object
+          additionalProperties: true
+
+    # ---------- 地址(随类型不同) ----------
+    Address:
+      type: object
+      description: |
+        能力地址，让服务能**自动取回该版本的确切内容**。结构由**能力的 `type`** 决定，服务端按下表校验必填字段，
+        未列出的字段忽略。schema 层面不做互斥（skill 与文件类的仓库地址结构相同）。
+
+        | 能力 `type` | 必填字段 | 可选字段 |
+        |---|---|---|
+        | `skill` | 仓库形式：`repo`、`path`、`commit`（**MVP 仅支持此形式**） | `ma_skill_id`、`ma_skill_version` |
+        | `tool` / `template` / `knowledge` | 仓库形式：`repo`、`path`、`commit`；或对象存储形式：`bucket`、`key`、`sha256`（二选一） | — |
+        | `mcp` | `url`（对应 MA `mcp_servers[].url`，MA 的 MCP 声明无协议字段） | `credential_name`（只写凭证名称，不含值） |
+        | `agent` | 压缩包形式：`package_url`、`sha256`（或仓库形式 `repo`、`path`、`commit`）；`role`（`main`/`sub`）、`visibility`（`public`/`internal`） | `ma_agent_id`、`ma_agent_version`（智能体发布时回填） |
+
+        **预留（MVP 不校验、不使用）**：`market_skill_id`、`market_version` 两个字段用于后续与 Skill 市场打通，
+        届时 `skill` 类可改用「市场形式」（`market_skill_id` + `market_version`）作为仓库形式之外的另一种必填组合。
+        MVP 阶段服务端**忽略**这两个字段，但允许携带，保证以后接入时旧数据与旧接口不受影响。
+      properties:
+        repo: { type: string }
+        path: { type: string }
+        commit: { type: string }
+        bucket: { type: string }
+        key: { type: string }
+        sha256: { type: string }
+        package_url: { type: string, format: uri, description: 智能体包压缩包的公网链接（agent 类型，交付规范 2.6） }
+        url: { type: string, format: uri }
+        credential_name: { type: string }
+        ma_skill_id: { type: string, description: 已上传到 MA 的 Skill ID }
+        ma_skill_version: { type: string }
+        role: { type: string, enum: [main, sub], description: 智能体角色（agent 类型，来自 registry/agent.json） }
+        visibility: { type: string, enum: [public, internal], description: 智能体可见范围（agent 类型） }
+        ma_agent_id: { type: string, description: 智能体在 MA 上的 Agent ID（agent 类型） }
+        ma_agent_version: { type: string, description: 智能体对应的 MA Agent 版本号（agent 类型） }
+        market_skill_id:
+          type: string
+          description: '**预留，MVP 忽略。** Skill 市场中的技能 ID。'
+        market_version:
+          type: string
+          description: '**预留，MVP 忽略。** Skill 市场中的版本号，格式 `主.次.修订`，与本服务版本号格式一致。'
+      additionalProperties: false
+    DependsOn:
+      type: object
+      required: [atomic_id, range]
+      properties:
+        atomic_id: { $ref: '#/components/schemas/AtomicId' }
+        range: { type: string, example: ^1.0.0 }
+        pin:
+          type: string
+          example: 1.0.3
+          description: '`agent` 类型版本发布时必填：子智能体发布时锁定的确切版本，固定在该版本内'
+    Compat:
+      type: object
+      properties:
+        ma_toolset: { type: string, example: agent_toolset_20260916 }
+        models:
+          type: array
+          items: { type: string }
+        ma_docs_snapshot: { type: string, format: date }
+    CredentialRequirement:
+      type: object
+      required: [kind, purpose]
+      description: 只写凭证类型与用途，**不含值**。
+      properties:
+        kind:
+          type: string
+          enum: [api_key, oauth_token, mcp]
+        purpose: { type: string }
+
+    # ---------- 原子能力 ----------
+    CapabilityCreate:
+      type: object
+      required: [atomic_id, owner_topic, type, team, owner_primary, owner_backup, description]
+      properties:
+        atomic_id: { $ref: '#/components/schemas/AtomicId' }
+        owner_topic:
+          type: string
+          description: 业务线 ID 或 `platform`；须与 `atomic_id` 前缀一致
+        type: { $ref: '#/components/schemas/CapabilityType' }
+        team: { type: string, maxLength: 64 }
+        owner_primary: { type: string, maxLength: 64 }
+        owner_backup: { type: string, maxLength: 64 }
+        description:
+          type: string
+          maxLength: 512
+          description: 写"何时用、做什么、输入输出"，面向选用者
+    CapabilityUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        team: { type: string, maxLength: 64 }
+        owner_primary: { type: string, maxLength: 64 }
+        owner_backup: { type: string, maxLength: 64 }
+        description: { type: string, maxLength: 512 }
+    Capability:
+      type: object
+      required: [atomic_id, owner_topic, name, type, team, owner_primary, owner_backup, description, status, created_at, updated_at]
+      properties:
+        atomic_id: { $ref: '#/components/schemas/AtomicId' }
+        owner_topic: { type: string }
+        name: { type: string, description: 由 atomic_id 去掉前缀得到 }
+        type: { $ref: '#/components/schemas/CapabilityType' }
+        team: { type: string }
+        owner_primary: { type: string }
+        owner_backup: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/CapabilityStatus' }
+        latest_released_version:
+          type: string
+          nullable: true
+          description: 当前最新 released 版本号；尚无则为 null
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    CapabilityDetail:
+      allOf:
+        - $ref: '#/components/schemas/Capability'
+        - type: object
+          properties:
+            latest_released:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/VersionSummary'
+            active_ref_count:
+              type: integer
+              description: 当前 `active` 引用总数
+    CapabilityPage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Capability' }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+
+    # ---------- 版本 ----------
+    VersionCreate:
+      type: object
+      required: [version, fingerprint, address]
+      properties:
+        version: { $ref: '#/components/schemas/SemVer' }
+        fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: 内容 SHA-256（小写十六进制）。内容不变则指纹不变。
+        address: { $ref: '#/components/schemas/Address' }
+        depends_on:
+          type: array
+          items: { $ref: '#/components/schemas/DependsOn' }
+        compat: { $ref: '#/components/schemas/Compat' }
+        credentials:
+          type: array
+          items: { $ref: '#/components/schemas/CredentialRequirement' }
+        changelog: { type: string, maxLength: 1024 }
+    VersionSummary:
+      type: object
+      required: [version, fingerprint, status]
+      properties:
+        version: { $ref: '#/components/schemas/SemVer' }
+        fingerprint: { type: string }
+        status: { $ref: '#/components/schemas/VersionStatus' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    Version:
+      type: object
+      required: [atomic_id, version, fingerprint, address, status, created_by, created_at, updated_at]
+      properties:
+        atomic_id: { $ref: '#/components/schemas/AtomicId' }
+        version: { $ref: '#/components/schemas/SemVer' }
+        fingerprint: { type: string }
+        address: { $ref: '#/components/schemas/Address' }
+        depends_on:
+          type: array
+          items: { $ref: '#/components/schemas/DependsOn' }
+        compat: { $ref: '#/components/schemas/Compat' }
+        credentials:
+          type: array
+          items: { $ref: '#/components/schemas/CredentialRequirement' }
+        changelog: { type: string }
+        status: { $ref: '#/components/schemas/VersionStatus' }
+        deprecated_at:
+          allOf: [ { $ref: '#/components/schemas/Timestamp' } ]
+          nullable: true
+        retire_after:
+          allOf: [ { $ref: '#/components/schemas/Timestamp' } ]
+          nullable: true
+        replaced_by:
+          type: string
+          nullable: true
+          description: 替代版本号
+        created_by: { type: string }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    VersionDetail:
+      allOf:
+        - $ref: '#/components/schemas/Version'
+        - type: object
+          properties:
+            active_ref_count:
+              type: integer
+              description: 当前锁定在该版本的 `active` 引用数
+    VersionPage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Version' }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+    VersionTransition:
+      type: object
+      required: [to]
+      properties:
+        to: { $ref: '#/components/schemas/VersionStatus' }
+        reason: { type: string, maxLength: 256 }
+        retire_after:
+          allOf: [ { $ref: '#/components/schemas/Timestamp' } ]
+          description: 转到 `deprecated` 时必填
+        replaced_by:
+          type: string
+          description: 转到 `deprecated` 时必填；替代版本号，无替代则传空字符串
+
+    # ---------- 引用 ----------
+    RefPut:
+      type: object
+      required: [atomic_id, business_line_id, employee, agent, stage, version_range]
+      properties:
+        atomic_id: { $ref: '#/components/schemas/AtomicId' }
+        business_line_id: { type: string, description: 引用方业务线 ID（与能力表 owner_topic 的提供方区分） }
+        employee: { type: string, description: 数字员工 ID }
+        agent:
+          type: string
+          description: 引用方智能体 ID（同一位数字员工内唯一）
+          pattern: '^[a-z0-9-]{3,24}$'
+        stage: { $ref: '#/components/schemas/Stage' }
+        version_range: { type: string, description: 业务方声明的可接受范围, example: ^1.2.0 }
+        pinned_version:
+          allOf: [ { $ref: '#/components/schemas/SemVer' } ]
+          description: 当前锁定版本；不传表示只声明范围、尚未锁定
+        ma_agent_id:
+          type: string
+          description: 该智能体在 MA 上的 Agent ID
+        reason:
+          type: string
+          maxLength: 256
+          description: 锁定版本**变小**（回滚）时必填
+    Ref:
+      type: object
+      required: [id, atomic_id, business_line_id, employee, agent, stage, version_range, status, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        atomic_id: { $ref: '#/components/schemas/AtomicId' }
+        business_line_id: { type: string }
+        employee: { type: string }
+        agent: { type: string }
+        stage: { $ref: '#/components/schemas/Stage' }
+        version_range: { type: string }
+        pinned_version:
+          type: string
+          nullable: true
+        ma_agent_id:
+          type: string
+          nullable: true
+        status: { $ref: '#/components/schemas/RefStatus' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    RefPage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Ref' }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }

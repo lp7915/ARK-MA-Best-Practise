@@ -1,0 +1,12 @@
+{
+  "id": "topic-lab.ada-pm.t",
+  "version": "1.2.0",
+  "role": "sub",
+  "visibility": "internal",
+  "owner": {
+    "team": "Ada 项目维护方",
+    "primary": "待指定",
+    "backup": "待指定"
+  },
+  "description": "完整候选 Topic 报告；不承接任意局部动作或能力外工作"
+}

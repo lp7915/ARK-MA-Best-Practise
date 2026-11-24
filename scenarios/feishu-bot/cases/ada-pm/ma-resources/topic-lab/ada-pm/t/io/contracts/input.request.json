@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "input.request",
+  "version": "1.2.0",
+  "description": "结构化采用值；字段与材料完整性再由业务契约判断。requires_hc 是模拟工程变体的交互要求，不是所有任务通用门槛",
+  "type": "object",
+  "properties": {
+    "object": {
+      "type": "string"
+    },
+    "period": {
+      "type": "string"
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "topic": {
+      "enum": [
+        "social",
+        "audience",
+        null
+      ]
+    },
+    "action": {
+      "enum": [
+        "aggregate",
+        "deduplicate",
+        null
+      ]
+    },
+    "human": {
+      "type": "boolean"
+    },
+    "requires_hc": {
+      "type": "boolean"
+    },
+    "dataset": {
+      "type": "object",
+      "required": [
+        "schema",
+        "rows",
+        "meta"
+      ]
+    },
+    "extra_dataset": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "object",
+    "period",
+    "purpose"
+  ],
+  "examples": [
+    {
+      "object": "示例对象",
+      "period": "示例周期",
+      "purpose": "内部讨论",
+      "topic": null,
+      "action": "aggregate",
+      "human": false
+    }
+  ]
+}

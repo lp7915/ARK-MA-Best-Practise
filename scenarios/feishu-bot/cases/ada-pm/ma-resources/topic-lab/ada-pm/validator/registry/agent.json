@@ -1,0 +1,12 @@
+{
+  "id": "topic-lab.ada-pm.validator",
+  "version": "1.2.0",
+  "role": "sub",
+  "visibility": "internal",
+  "owner": {
+    "team": "Ada 项目维护方",
+    "primary": "待指定",
+    "backup": "待指定"
+  },
+  "description": "按指定工程检查明确产物版本；不替代业务确认"
+}

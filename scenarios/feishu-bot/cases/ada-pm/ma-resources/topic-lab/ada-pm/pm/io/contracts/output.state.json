@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "output.state",
+  "version": "1.2.0",
+  "description": "PM持久业务状态；保存真实输入、确认、调用、Context、检查和路由关联。合成材料不等于模拟Agent调用。",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "plan_version": {
+      "type": "integer"
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "contexts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "events": {
+      "type": "object"
+    },
+    "routing_state": {
+      "type": "object"
+    },
+    "routing_result": {
+      "type": "object"
+    },
+    "routing_projection": {
+      "type": "object"
+    },
+    "routing_events": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "execution_environment": {
+      "enum": [
+        "ma",
+        "local-script-test"
+      ],
+      "description": "按实际执行环境填写，不以合成数据推断Agent已在MA运行"
+    }
+  },
+  "required": [
+    "task_id",
+    "status",
+    "plan_version",
+    "messages",
+    "artifacts",
+    "checks",
+    "contexts",
+    "events",
+    "execution_environment"
+  ],
+  "produced_by": "pm",
+  "artifact_type": "state",
+  "location": "Agent Workspace 的 task/state.json",
+  "based_on": [
+    "input.event"
+  ],
+  "examples": [
+    {
+      "task_id": "task-reference",
+      "status": "collecting",
+      "plan_version": 0,
+      "messages": [],
+      "artifacts": [],
+      "checks": [],
+      "contexts": [],
+      "events": {},
+      "execution_environment": "ma"
+    }
+  ]
+}

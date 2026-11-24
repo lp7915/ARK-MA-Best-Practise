@@ -1,0 +1,79 @@
+{
+  "version": "1.2.0",
+  "scope": "local-simulation-subset",
+  "usage": "每个动作下为execute(action,payload)的参数片段；补入实际dataset，merge补batches，save补receipts/output_root；不得把不同动作的参数混用",
+  "validate": {
+    "rules": {
+      "field_rules": [
+        {
+          "field": "id",
+          "required": true,
+          "type": "string"
+        }
+      ]
+    },
+    "params": {
+      "on_error": "reject_row",
+      "normalize": false
+    }
+  },
+  "deduplicate": {
+    "rules": {
+      "key_fields": [
+        "id"
+      ],
+      "match_mode": "exact",
+      "survivor": {
+        "policy": "first"
+      }
+    }
+  },
+  "metrics": {
+    "metrics_def": {
+      "dimensions": [
+        "region"
+      ],
+      "metrics": [
+        {
+          "name": "count",
+          "agg": "count",
+          "caliber": "按本次有效去重样本的地区分组计数，不外推总体"
+        }
+      ]
+    },
+    "params": {
+      "null_policy": "skip"
+    }
+  },
+  "merge": {
+    "rules": {
+      "schema_align": "union",
+      "type_conflict": "fail",
+      "provenance_field": "_batch"
+    }
+  },
+  "chart": {
+    "chart_def": {
+      "type": "bar",
+      "encodings": {
+        "x": "region",
+        "y": "count"
+      },
+      "title": "Demo合成样本地区分布"
+    },
+    "params": {
+      "format": "svg",
+      "width": 960,
+      "height": 540
+    }
+  },
+  "save": {
+    "target": {
+      "backend": "fs",
+      "index_key": "demo-receipts"
+    },
+    "params": {
+      "mode": "append"
+    }
+  }
+}

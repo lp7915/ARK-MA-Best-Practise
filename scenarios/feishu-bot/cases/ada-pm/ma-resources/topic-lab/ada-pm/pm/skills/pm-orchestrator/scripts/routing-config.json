@@ -1,0 +1,22 @@
+{
+  "version": "1.2.0",
+  "simulation_only": true,
+  "invocation": "fixed-host-call",
+  "defaults": {
+    "dedup_key": "id",
+    "metric": "count"
+  },
+  "topic_bindings": {
+    "demo_social_report": "social",
+    "demo_audience_report": "audience"
+  },
+  "action_bindings": {
+    "demo_deduplicate": "deduplicate",
+    "demo_aggregate": "aggregate"
+  },
+  "human_methods": [
+    "causal",
+    "forecast",
+    "offline_interview"
+  ]
+}

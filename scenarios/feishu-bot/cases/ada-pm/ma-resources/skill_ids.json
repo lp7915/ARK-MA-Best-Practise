@@ -1,0 +1,26 @@
+{
+  "note": "由 pack_upload_skills.py 上传成功后回填",
+  "skills": {
+    "pm-orchestrator": {
+      "skill_id": "skill-20261110153609-ap7l3xrrzr",
+      "version": "1",
+      "uploaded_at": 1794324970,
+      "source_sha256": "55bb3c0decdd0da53081a80940fe53f85d65c8772b80e7975c05fb6bd07d3bf5",
+      "display_title": "Ada PM · 红线路由脚本与真实 MA 协作约定"
+    },
+    "work-item": {
+      "skill_id": "skill-20261111031715-eupqjq3car",
+      "version": "1",
+      "uploaded_at": 1794367035,
+      "source_sha256": "c27c50103f981d4d6aa69aae3263578f9d6811a3b0af1eab6dab5833a8758430",
+      "display_title": "Ada PM · 子 Agent 工作项执行入口（run.py）"
+    },
+    "atomic-ops": {
+      "skill_id": "skill-20261110153610-4dnmekd2q6",
+      "version": "1",
+      "uploaded_at": 1794324970,
+      "source_sha256": "4c588b74a281c14070af92072578fda560bd1628d4768c7d58c3fa5f02d6129b",
+      "display_title": "Ada PM · 六项确定性原子能力"
+    }
+  }
+}

@@ -1,0 +1,845 @@
+{
+  "simulation_only": true,
+  "cases": [
+    {
+      "case_id": "C01",
+      "description": "完整单Topic，缺执行数据仍可形成方案",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C01_1",
+            "user_id": "u1",
+            "text": "甲品牌2026年10月人群洞察完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t",
+            "topic_count": 1,
+            "missing_execution": [
+              "dataset"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C02",
+      "description": "完整多Topic，不把候选歧义当组合",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C02_1",
+            "user_id": "u1",
+            "text": "甲品牌2026年10月人群洞察完整报告和社媒舆情完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t",
+            "topic_count": 2
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C03",
+      "description": "Topic加增量去重",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C03_1",
+            "user_id": "u1",
+            "text": "甲品牌人群洞察完整报告，另外把这份名单按客户ID去重"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t+g",
+            "topic_count": 1,
+            "g_count": 1
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C04",
+      "description": "多Topic加增量统计",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C04_1",
+            "user_id": "u1",
+            "text": "甲品牌人群洞察完整报告和社媒舆情完整报告，另外计算这份表的平均销量"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t+g",
+            "topic_count": 2,
+            "g_count": 1
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C05",
+      "description": "否定完整报告，局部分析走g",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C05_1",
+            "user_id": "u1",
+            "text": "甲品牌不要完整报告，只需要局部人群画像"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "g",
+            "topic_count": 0
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C06",
+      "description": "无完整Topic的表格处理",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C06_1",
+            "user_id": "u1",
+            "text": "把这份名单按客户ID去重"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "g",
+            "g_count": 1
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C07",
+      "description": "已明确不支持的因果方法转h",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C07_1",
+            "user_id": "u1",
+            "text": "请证明甲品牌投放和销量之间的因果关系"
+          },
+          "expected": {
+            "status": "needs_human",
+            "route": "h"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C08",
+      "description": "包含Topic但剩余方法能力外",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C08_1",
+            "user_id": "u1",
+            "text": "甲品牌人群洞察完整报告，另外预测未来销量"
+          },
+          "expected": {
+            "status": "needs_human",
+            "route": "h",
+            "topic_count": 1
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C09",
+      "description": "模糊输入逐轮补充，短答选择完整报告",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C09_1",
+            "user_id": "u1",
+            "text": "帮我分析一下"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "route": null,
+            "routing_missing": [
+              "object"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C09_2",
+            "user_id": "u1",
+            "text": "甲品牌"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "route": null,
+            "routing_missing": [
+              "objective"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C09_3",
+            "user_id": "u1",
+            "text": "分析消费者人群"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "route": null,
+            "routing_missing": [
+              "mode"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C09_4",
+            "user_id": "u1",
+            "text": "完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t",
+            "initiator": "u1"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C10",
+      "description": "选择局部后保留先前分析对象",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C10_1",
+            "user_id": "u1",
+            "text": "分析甲品牌消费者"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "route": null,
+            "routing_missing": [
+              "mode"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C10_2",
+            "user_id": "u1",
+            "text": "只要局部"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "g"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C11",
+      "description": "候选报告不确定，选择两个都要",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C11_1",
+            "user_id": "u1",
+            "text": "甲品牌用户反馈完整报告"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "route": null,
+            "routing_missing": [
+              "domain"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C11_2",
+            "user_id": "u1",
+            "text": "两个都要"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t",
+            "topic_count": 2
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C12",
+      "description": "候选报告不确定，指定一个",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C12_1",
+            "user_id": "u1",
+            "text": "甲品牌用户反馈完整报告"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "routing_missing": [
+              "domain"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C12_2",
+            "user_id": "u1",
+            "text": "社媒舆情"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t",
+            "topic_count": 1
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C13",
+      "description": "泛回答不能填补关键目标",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C13_1",
+            "user_id": "u1",
+            "text": "帮我做个报告"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "routing_missing": [
+              "object"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C13_2",
+            "user_id": "u1",
+            "text": "你看着办"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "routing_missing": [
+              "object"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C13_3",
+            "user_id": "u1",
+            "text": "甲品牌"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "routing_missing": [
+              "objective"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C13_4",
+            "user_id": "u1",
+            "text": "随便"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "routing_missing": [
+              "objective"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C14",
+      "description": "空输入必须反问",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C14_1",
+            "user_id": "u1",
+            "text": ""
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "route": null,
+            "question_contains": "哪个品牌"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C15",
+      "description": "未识别专业工作不能默认为能力外",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C15_1",
+            "user_id": "u1",
+            "text": "甲品牌做一个量子隐喻指数"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "route": null,
+            "routing_missing": [
+              "analysis_method"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C16",
+      "description": "Topic后有未知增量不得忽略，补充后收敛",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C16_1",
+            "user_id": "u1",
+            "text": "甲品牌人群洞察完整报告，另外做一项不认识的专业分析"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "route": null,
+            "routing_missing": [
+              "analysis_method"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C16_2",
+            "user_id": "u1",
+            "text": "我说的是计算这份表的平均销量"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t+g"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C17",
+      "description": "一个人明确纠正时间，不触发管理员",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C17_1",
+            "user_id": "u1",
+            "text": "甲品牌2026年9月人群洞察完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t"
+          }
+        },
+        {
+          "input": {
+            "event_id": "C17_2",
+            "user_id": "u1",
+            "text": "我刚才时间写错了，改为2026年10月"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t",
+            "conflict_count": 0,
+            "period": "2026-10"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C18",
+      "description": "两个输入人互补，保留初始发起人",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C18_1",
+            "user_id": "u1",
+            "text": "分析甲品牌消费者"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "routing_missing": [
+              "mode"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C18_2",
+            "user_id": "u2",
+            "text": "需要完整报告，周期为2026年10月"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t",
+            "initiator": "u1",
+            "conflict_count": 0
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C19",
+      "description": "两人时间冲突，管理员采用新值",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C19_1",
+            "user_id": "u1",
+            "text": "甲品牌2026年9月人群洞察完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t"
+          }
+        },
+        {
+          "input": {
+            "event_id": "C19_2",
+            "user_id": "u2",
+            "text": "周期用2026年10月"
+          },
+          "expected": {
+            "status": "needs_resolution",
+            "route": null,
+            "conflict_count": 1
+          }
+        },
+        {
+          "input": {
+            "event_id": "C19_3",
+            "user_id": "admin",
+            "text": "裁决采用2026年10月"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t",
+            "period": "2026-10"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C20",
+      "description": "两人时间冲突，管理员采用旧值也关闭争议",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C20_1",
+            "user_id": "u1",
+            "text": "甲品牌2026年9月人群洞察完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation"
+          }
+        },
+        {
+          "input": {
+            "event_id": "C20_2",
+            "user_id": "u2",
+            "text": "周期用2026年10月"
+          },
+          "expected": {
+            "status": "needs_resolution"
+          }
+        },
+        {
+          "input": {
+            "event_id": "C20_3",
+            "user_id": "admin",
+            "text": "裁决采用2026年9月"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "period": "2026-09"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C21",
+      "description": "完整与局部要求由不同人提出不能静默覆盖",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C21_1",
+            "user_id": "u1",
+            "text": "甲品牌人群洞察完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t"
+          }
+        },
+        {
+          "input": {
+            "event_id": "C21_2",
+            "user_id": "u2",
+            "text": "只要局部"
+          },
+          "expected": {
+            "status": "needs_resolution",
+            "route": null
+          }
+        },
+        {
+          "input": {
+            "event_id": "C21_3",
+            "user_id": "admin",
+            "text": "裁决采用完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C22",
+      "description": "同一事件重复发送保持相同版本",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C22_same",
+            "user_id": "u1",
+            "text": "甲品牌人群洞察完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t",
+            "revision": 1,
+            "plan_version": 1
+          }
+        },
+        {
+          "input": {
+            "event_id": "C22_same",
+            "user_id": "u1",
+            "text": "甲品牌人群洞察完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t",
+            "revision": 1,
+            "plan_version": 1
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C23",
+      "description": "补充增量工作触发重新路由",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C23_1",
+            "user_id": "u1",
+            "text": "甲品牌人群洞察完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t",
+            "plan_version": 1
+          }
+        },
+        {
+          "input": {
+            "event_id": "C23_2",
+            "user_id": "u1",
+            "text": "另外把这份名单按客户ID去重"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t+g",
+            "plan_version": 2
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C24",
+      "description": "明确范围修订移除已否定的能力外动作",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C24_1",
+            "user_id": "u1",
+            "text": "请预测甲品牌未来销量"
+          },
+          "expected": {
+            "status": "needs_human",
+            "route": "h"
+          }
+        },
+        {
+          "input": {
+            "event_id": "C24_2",
+            "user_id": "u1",
+            "text": "我更正一下，不预测了，改为把这份名单按客户ID去重"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "g"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C25",
+      "description": "只要完整报告仍是t",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C25_1",
+            "user_id": "u1",
+            "text": "我只要甲品牌完整人群洞察报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C26",
+      "description": "完整报告外只需去重不能被全局局部词覆盖",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C26_1",
+            "user_id": "u1",
+            "text": "甲品牌人群洞察完整报告，额外只需要把这份名单按客户ID去重"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t+g"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C27",
+      "description": "资料没上传不等于能力不足",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C27_1",
+            "user_id": "u1",
+            "text": "甲品牌只要局部人群画像，文件稍后上传"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "g",
+            "missing_execution": [
+              "dataset"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C28",
+      "description": "语义仍不清晰时继续反问",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C28_1",
+            "user_id": "u1",
+            "text": "分析甲品牌消费者"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "routing_missing": [
+              "mode"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C28_2",
+            "user_id": "u1",
+            "text": "好的"
+          },
+          "expected": {
+            "status": "needs_clarification",
+            "routing_missing": [
+              "mode"
+            ]
+          }
+        },
+        {
+          "input": {
+            "event_id": "C28_3",
+            "user_id": "u1",
+            "text": "完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C29",
+      "description": "第二人无权改变报告范围",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C29_1",
+            "user_id": "u1",
+            "text": "甲品牌人群洞察完整报告"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "t"
+          }
+        },
+        {
+          "input": {
+            "event_id": "C29_2",
+            "user_id": "u2",
+            "text": "改成甲品牌社媒舆情完整报告"
+          },
+          "expected": {
+            "status": "needs_resolution",
+            "route": null
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "C30",
+      "description": "明确否定预测不能错误转人工",
+      "turns": [
+        {
+          "input": {
+            "event_id": "C30_1",
+            "user_id": "u1",
+            "text": "甲品牌不用预测，只计算这份表的平均销量"
+          },
+          "expected": {
+            "status": "ready_for_confirmation",
+            "route": "g"
+          }
+        }
+      ]
+    }
+  ]
+}

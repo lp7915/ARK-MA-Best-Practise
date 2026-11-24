@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "output.artifact",
+  "version": "1.2.0",
+  "description": "可送检/可交付的明确产物",
+  "type": "object",
+  "properties": {
+    "artifact_id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "path": {
+      "type": "string"
+    },
+    "producer": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "source_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "copies": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "confirmation_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "resource_version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "artifact_id",
+    "version",
+    "sha256",
+    "path",
+    "producer",
+    "run_id",
+    "kind",
+    "source_refs",
+    "copies"
+  ],
+  "produced_by": "pm/t/g/s/validator/h",
+  "artifact_type": "file",
+  "location": "run/artifacts（动态，不属于资源包）",
+  "based_on": [
+    "input.request",
+    "handoff.pm-worker"
+  ],
+  "examples": [
+    {
+      "artifact_id": "artifact-reference",
+      "version": "1.0.0",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "path": "当前运行的产物目录/report.md",
+      "producer": "t",
+      "run_id": "run-reference",
+      "kind": "report",
+      "source_refs": [
+        "input-reference"
+      ],
+      "copies": []
+    }
+  ]
+}

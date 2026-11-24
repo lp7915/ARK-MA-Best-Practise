@@ -1,0 +1,34 @@
+{
+  "spec": "1.5",
+  "stage": "dev",
+  "model": {
+    "id": "gpt-6.1-sol",
+    "provider": "bmc-llm-relay",
+    "service_tier": "default",
+    "base_url": "https://bmc-llm-relay.bluemediagroup.cn/v1/responses",
+    "protocol": "openai_responses",
+    "token_limits": {
+      "context_window": 1050000,
+      "max_input_token_length": 922000,
+      "max_output_token_length": 128000
+    }
+  },
+  "tools": [
+    {
+      "type": "agent_toolset_20260916",
+      "default_config": {
+        "enabled": true,
+        "permission_policy": { "type": "always_allow" }
+      },
+      "configs": [
+        { "name": "web_fetch", "enabled": false },
+        { "name": "web_search", "enabled": false }
+      ]
+    }
+  ],
+  "environment": {
+    "type": "cloud",
+    "networking": { "type": "unrestricted" },
+    "env": { "PYTHONUNBUFFERED": "1" }
+  }
+}

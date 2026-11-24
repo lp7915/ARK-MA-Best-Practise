@@ -15,10 +15,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass
 from typing import Optional, Protocol
+
+logger = logging.getLogger(__name__)
 
 # 引用链最多回溯几层：用户 @bot 那条 → 它引用的 → 再上一层……封顶避免有人恶意/无意
 # 串成长链时把回查次数放大（每层一次 im.v1.message.get）。第 1 层是直接被引用的消息。
@@ -402,6 +405,44 @@ class FeishuSender:
                 break
         return pairs
 
+    def list_chat_bots(self, chat_id: str) -> list[tuple[str, str]]:
+        """拉取一个群内的机器人，返回 (显示名, open_id) 列表。
+
+        飞书 `chats/:chat_id/members` 只返回真人（机器人在那里被过滤掉），机器人要单独走
+        `GET /open-apis/im/v1/chats/:chat_id/members/bots`，返回项 `bot_id` 即机器人的 open_id、
+        `bot_name` 为显示名。供出站把 Agent 回复里的 `@机器人名` 重写成可点击 `<at user_id=...>`，
+        从而支持 bot 回复 bot（a2a）时 @ 回对方。纯 IO，失败抛异常由 chat_roster 降级。
+        """
+        from lark_channel import AccessTokenType, BaseRequest, HttpMethod
+
+        request = (
+            BaseRequest.builder()
+            .http_method(HttpMethod.GET)
+            .uri("/open-apis/im/v1/chats/:chat_id/members/bots")
+            .paths({"chat_id": chat_id})
+            .token_types({AccessTokenType.TENANT})
+            .build()
+        )
+        response = self._client.request(request)
+        if not response.success():
+            raise RuntimeError(f"读取群内机器人失败 {response.code}: {response.msg}")
+        raw = response.raw.content if response.raw else None
+        try:
+            payload = json.loads(raw) if raw else {}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = {}
+        data = payload.get("data") if isinstance(payload, dict) else None
+        data = data if isinstance(data, dict) else {}
+        pairs: list[tuple[str, str]] = []
+        for item in data.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            bot_id = str(item.get("bot_id") or "")
+            name = str(item.get("bot_name") or "")
+            if bot_id and name:
+                pairs.append((name, bot_id))
+        return pairs
+
     def chat_roster(self, chat_id: str) -> dict[str, str]:
         """群成员名册 `显示名 → open_id`（带 TTL 缓存 + 同名消歧）。
 
@@ -414,10 +455,15 @@ class FeishuSender:
         cached = self._roster_cache.get(chat_id)
         if cached is not None and cached[0] > now:
             return cached[1]
+        pairs: list[tuple[str, str]] = []
         try:
-            pairs = self.list_chat_members(chat_id)
+            pairs.extend(self.list_chat_members(chat_id))
         except Exception:  # noqa: BLE001 - 名册拉取失败不该拖垮回复，退回不 @
             return {}
+        try:
+            pairs.extend(self.list_chat_bots(chat_id))
+        except Exception:  # noqa: BLE001 - 机器人名册拉取失败只影响 @bot，不影响 @人
+            pass
         roster = _build_roster(pairs)
         self._roster_cache[chat_id] = (now + CHAT_ROSTER_TTL_SECONDS, roster)
         return roster
@@ -511,7 +557,7 @@ class FeishuSender:
                 self._reply_with(message_id, "post", _text_to_post_content(text, roster))
                 return
             except Exception:  # noqa: BLE001 - post 渲染/发送失败不该让回复彻底丢，降级纯文本重试
-                pass
+                logger.warning("post 回复失败，降级纯文本 message_id=%s", message_id, exc_info=True)
         self._reply_with(message_id, "text", json.dumps({"text": text}, ensure_ascii=False))
 
     def _reply_with(self, message_id: str, msg_type: str, content: str) -> None:
@@ -592,7 +638,7 @@ class FeishuSender:
                     message_id, "post", _text_to_post_content(text, roster)
                 )
             except Exception:  # noqa: BLE001 - 富文本失败时仍需在同一话题内降级发送
-                pass
+                logger.warning("post 话题回复失败，降级纯文本 message_id=%s", message_id, exc_info=True)
         return self._reply_in_thread_with(
             message_id, "text", json.dumps({"text": text}, ensure_ascii=False)
         )
@@ -671,7 +717,7 @@ class FeishuSender:
                 self._create_in_chat(chat_id, "post", _text_to_post_content(text, roster))
                 return
             except Exception:  # noqa: BLE001 - post 渲染/发送失败降级纯文本，别让消息彻底发不出去
-                pass
+                logger.warning("post 发群消息失败，降级纯文本 chat_id=%s", chat_id, exc_info=True)
         self._create_in_chat(chat_id, "text", json.dumps({"text": text}, ensure_ascii=False))
 
     def send_authorization_card(
@@ -1460,7 +1506,12 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
     """
     content_type = str(getattr(msg, "raw_content_type", None) or "")
     resources = _extract_resources(msg)
-    if content_type != "text" and not resources:
+    # post(富文本)与 text 同等对待:带编号/换行的长消息飞书客户端会自动以 post 发出,
+    # SDK 已把它展平进 content_text,不需要附件也应当处理。
+    if content_type not in ("text", "post") and not resources:
+        logger.info(
+            "忽略不支持的消息类型 type=%s message_id=%s", content_type or "unknown", getattr(msg, "id", "")
+        )
         return None
     conversation = getattr(msg, "conversation", None)
     sender = getattr(msg, "sender", None)

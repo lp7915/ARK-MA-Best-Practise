@@ -1,0 +1,27 @@
+{
+  "dependencies": {
+    "python": [
+      "python>=3.9",
+      "jsonschema>=4.20",
+      "PyYAML>=6.0"
+    ],
+    "node": [],
+    "system": []
+  },
+  "tools": [],
+  "network": {
+    "mode": "restricted",
+    "allowed_hosts": []
+  },
+  "env_vars": [
+    {
+      "name": "TZ",
+      "value": "Asia/Shanghai",
+      "purpose": "业务时区"
+    }
+  ],
+  "runtime": {
+    "max_task_minutes": 30,
+    "notes": "Demo 脚本本地最低需求，非 MA 配额或 SLA；无外网。平台选择模型与锁定版本，当前材料不依赖网页或开发工程。命令执行环境须保留本智能体包内相对布局：work-item 脚本相对定位 registry/agent.json、io/contracts 及 skills/atomic-ops；不得只复制单个 scripts 文件而丢失依赖。稳定资源只读，实际 Workspace 另行分配。"
+  }
+}

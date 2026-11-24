@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "output.worker-result",
+  "version": "1.2.0",
+  "description": "执行方返回包，实际文件在当前 run artifacts 中",
+  "type": "object",
+  "properties": {
+    "recipient": {
+      "type": "string"
+    },
+    "work_item": {
+      "type": "string"
+    },
+    "confirmation_version": {
+      "type": "integer"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "partial",
+        "failed"
+      ]
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "每项内容采用output.validation；validator将同对象保存为实际validation文件。"
+      }
+    },
+    "resource_version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "recipient",
+    "work_item",
+    "confirmation_version",
+    "artifacts",
+    "evidence",
+    "limitations",
+    "status"
+  ],
+  "produced_by": "t/g/s/validator 或人工 h 由 pm 接收",
+  "artifact_type": "message-and-files",
+  "location": "当前运行的 artifacts 和 attempts",
+  "based_on": [
+    "handoff.pm-worker"
+  ],
+  "examples": [
+    {
+      "recipient": "g",
+      "work_item": "work-reference",
+      "confirmation_version": 1,
+      "artifacts": [],
+      "evidence": [
+        "input-reference"
+      ],
+      "limitations": [
+        "结构示例，不是一次实际运行"
+      ],
+      "status": "partial"
+    }
+  ]
+}

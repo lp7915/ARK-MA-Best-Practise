@@ -68,3 +68,119 @@ def test_team_store_mapping_roundtrip():
     store = _store()
     store.save_team_store_id("销售", "team-1")
     assert store.get_team_store_id("销售") == "team-1"
+
+
+def _identity(store, key):
+    return store._db.execute(
+        "SELECT user_id, chat_type, created_at FROM conversations WHERE conversation_key = ?",
+        (store.conversation_key(key),),
+    ).fetchone()
+
+
+def test_save_session_records_user_id_and_chat_type():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sess-1", "agent-1", user_id="u_alice", chat_type="p2p")
+    assert _identity(store, key) == ("u_alice", "p2p", _identity(store, key)[2])  # created_at 非空
+    assert _identity(store, key)[2] != ""
+
+
+def test_resave_without_identity_does_not_wipe_existing_user_id():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sess-1", "agent-1", user_id="u_alice", chat_type="p2p")
+    store.save_session(key, "sess-1", "agent-1")  # 同 session 重复保存、不带身份:不能清掉已记录的
+    assert _identity(store, key)[:2] == ("u_alice", "p2p")
+
+
+def test_resave_with_new_identity_updates_it():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sess-1", "agent-1", user_id="u_alice", chat_type="p2p")
+    store.save_session(key, "sess-2", "agent-1", user_id="u_bob", chat_type="group")  # 换 session 了
+    assert _identity(store, key)[:2] == ("u_bob", "group")
+
+
+def test_created_at_is_stable_across_resave_of_same_session():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sess-1", "agent-1")
+    before = _identity(store, key)[2]
+    store.save_session(key, "sess-1", "agent-1")  # 同 session 再存:created_at 不变
+    assert _identity(store, key)[2] == before
+
+
+def test_legacy_table_without_new_columns_is_migrated():
+    import sqlite3
+
+    store = _store()
+    # 模拟老库:删掉迁移补的列
+    store._db.execute("ALTER TABLE conversations DROP COLUMN user_id")
+    store._db.execute("ALTER TABLE conversations DROP COLUMN chat_type")
+    store._db.execute("ALTER TABLE conversations DROP COLUMN created_at")
+    store._db.commit()
+    # 重新打开同一 :memory: 不可行,这里只验证迁移逻辑在初始化时执行——用一个真实文件库验证
+    import tempfile, pathlib
+
+    path = str(pathlib.Path(tempfile.mkdtemp()) / "old.db")
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE conversations (conversation_key TEXT PRIMARY KEY, session_id TEXT NOT NULL,"
+        " agent_id TEXT NOT NULL, agent_version TEXT, updated_at TEXT NOT NULL)"
+    )
+    conn.execute("INSERT INTO conversations VALUES ('chat:-:ou-user', 'sesn-legacy', 'agent-1', NULL, '2026-01-01')")
+    conn.commit()
+    conn.close()
+    migrated = GatewayStore(path)
+    cols = {r[1] for r in migrated._db.execute("PRAGMA table_info(conversations)").fetchall()}
+    assert {"user_id", "chat_type", "created_at"} <= cols
+    assert migrated.get_session(_key()) == "sesn-legacy"  # 老数据仍可读
+
+
+def _history(store):
+    return store._db.execute(
+        "SELECT chat_id, thread_id, user_open_id, user_id, chat_type, session_id, reason FROM session_history ORDER BY id"
+    ).fetchall()
+
+
+def test_reset_archives_old_session_before_delete():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sesn-old", "agent-1", user_id="u_alice", chat_type="p2p")
+    store.reset_session(key)
+    assert store.get_session(key) is None
+    assert _history(store) == [("chat", "", "ou-user", "u_alice", "p2p", "sesn-old", "reset")]
+
+
+def test_replacing_a_different_session_archives_the_old_one():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sesn-1", "agent-1", user_id="u_alice", chat_type="p2p")
+    store.save_session(key, "sesn-2", "agent-1", user_id="u_alice", chat_type="p2p")
+    assert [h[5:] for h in _history(store)] == [("sesn-1", "replaced")]
+    assert store.get_session(key) == "sesn-2"
+
+
+def test_saving_same_session_again_does_not_archive():
+    store = _store()
+    key = _key()
+    store.save_session(key, "sesn-1", "agent-1", user_id="u_alice", chat_type="p2p")
+    store.save_session(key, "sesn-1", "agent-1")  # 同 session 再存:不算替换,不归档
+    assert _history(store) == []
+
+
+def test_reset_all_archives_every_row_with_split_identity():
+    store = _store()
+    store.save_session(_key("ou_a"), "s1", "agent-1", user_id="u_a", chat_type="p2p")
+    store.save_session(ConversationKey("t", "oc_g", "th", "ou_b"), "s2", "agent-1", user_id="", chat_type="group")
+    assert store.reset_all_sessions() == 2
+    rows = {h[5]: h for h in _history(store)}
+    assert rows["s1"][:5] == ("chat", "", "ou_a", "u_a", "p2p")
+    assert rows["s2"][:5] == ("oc_g", "th", "ou_b", "", "group")
+    assert all(h[6] == "reset_all" for h in rows.values())
+
+
+def test_reset_with_nothing_to_archive_is_noop():
+    store = _store()
+    store.reset_session(_key())
+    assert _history(store) == []

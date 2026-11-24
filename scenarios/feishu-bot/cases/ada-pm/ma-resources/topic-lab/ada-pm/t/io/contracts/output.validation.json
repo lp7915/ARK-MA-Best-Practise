@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "output.validation",
+  "version": "1.2.0",
+  "description": "validator保存的validation.json内容；其文件对象放在output.worker-result.artifacts，检查对象同时出现在checks。",
+  "type": "object",
+  "properties": {
+    "conclusion": {
+      "enum": [
+        "通过",
+        "失败"
+      ]
+    },
+    "rules_version": {
+      "type": "string"
+    },
+    "executor": {
+      "const": "validator"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "confirmation_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "version",
+          "sha256"
+        ]
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "conclusion",
+    "rules_version",
+    "executor",
+    "task_id",
+    "run_id",
+    "confirmation_version",
+    "artifacts",
+    "evidence"
+  ],
+  "produced_by": "validator",
+  "artifact_type": "validation",
+  "location": "包外Workspace中的validation.json",
+  "based_on": [
+    "handoff.pm-worker",
+    "output.artifact"
+  ],
+  "examples": [
+    {
+      "conclusion": "失败",
+      "rules_version": "1.2.0",
+      "executor": "validator",
+      "task_id": "task-reference",
+      "run_id": "run-reference",
+      "confirmation_version": 1,
+      "artifacts": [],
+      "evidence": [
+        "结构示例：缺少待检查产物；不是实际运行记录"
+      ],
+      "limitations": [
+        "仅示例"
+      ]
+    }
+  ]
+}

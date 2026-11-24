@@ -1,0 +1,10 @@
+[
+  {
+    "id": "work-item",
+    "range": "^1.2.0"
+  },
+  {
+    "id": "atomic-ops",
+    "range": "^1.2.0"
+  }
+]

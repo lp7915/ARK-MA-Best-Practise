@@ -1,0 +1,37 @@
+{
+  "environment_id": "env-20261110154040-6l5so4zkup",
+  "memory_stores": {
+    "pm": "memstore-20261110154040-p7lw5fucrp",
+    "t": "memstore-20261110154040-tw1mww99zi",
+    "g": "memstore-20261110154041-bq957cr15c",
+    "s": "memstore-20261110154041-ly5op5z7uj",
+    "validator": "memstore-20261110154042-pu8ydgd2ro"
+  },
+  "agents": {
+    "pm": {
+      "id": "agent-20261111031721-c3d0679if2",
+      "version": 1
+    },
+    "t": {
+      "id": "agent-20261111031719-s1exxp13ib",
+      "version": 1
+    },
+    "g": {
+      "id": "agent-20261111031720-0pkgfh2u96",
+      "version": 1
+    },
+    "s": {
+      "id": "agent-20261111031720-0pkgfh2u97",
+      "version": 1
+    },
+    "validator": {
+      "id": "agent-20261111031721-8k3ts58ppi",
+      "version": 1
+    }
+  },
+  "skills": {
+    "pm-orchestrator": "skill-20261110153609-ap7l3xrrzr",
+    "work-item": "skill-20261111031715-eupqjq3car",
+    "atomic-ops": "skill-20261110153610-4dnmekd2q6"
+  }
+}
