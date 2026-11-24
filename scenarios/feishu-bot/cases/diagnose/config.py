@@ -42,6 +42,10 @@ class DiagnoseConfig:
     db_paths: dict
     authorized_open_ids: tuple[str, ...]
     session_timeout_ms: int
+    # BYOK Direct:模型鉴权 Header(如 Authorization),两者均为空则不附加;
+    # 会话亲和 Header(X-Partner-Session-Id)由 ArkClient 按 BYOK_SESSION_AFFINITY 统一追加,不在这里。
+    model_auth_header_name: str = ""
+    model_auth_header_value: str = ""
     # session 日志落飞书文档(定时任务)。doc_parent_token 为空 = 不启用。
     doc_parent_token: str = ""
     doc_sync_interval_s: int = 120
@@ -50,6 +54,14 @@ class DiagnoseConfig:
     doc_check_concurrency: int = 4
     doc_cycle_budget_s: int = 90
     doc_db_path: str = ""
+
+    @property
+    def model_auth_headers(self) -> dict:
+        """模型鉴权 Header 的透传形式(X-User-Model-Header-{name});
+        会话亲和 Header 由 ArkClient 统一追加,不在这里。"""
+        if self.model_auth_header_name and self.model_auth_header_value:
+            return {f"X-User-Model-Header-{self.model_auth_header_name}": self.model_auth_header_value}
+        return {}
 
 
 def _positive(raw: Optional[str], default: int, name: str) -> int:
@@ -87,6 +99,10 @@ def load_case_config(env: Optional[Mapping[str, str]] = None) -> DiagnoseConfig:
         if real in by_real:
             raise RuntimeError(f"{DB_ENV_KEYS[by_real[real]]} 与 {DB_ENV_KEYS[name]} 指向同一个库文件:{real}")
         by_real[real] = name
+    header_name = (environ.get("BYOK_MODEL_AUTH_HEADER_NAME") or "").strip()
+    header_value = (environ.get("BYOK_MODEL_AUTH_HEADER_VALUE") or "").strip()
+    if bool(header_name) != bool(header_value):
+        raise RuntimeError("BYOK_MODEL_AUTH_HEADER_NAME 与 BYOK_MODEL_AUTH_HEADER_VALUE 必须同时填写或同时留空")
     return DiagnoseConfig(
         ark_api_key=environ["ARK_API_KEY"].strip(),
         ark_base_url=(environ.get("ARK_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3").rstrip("/"),
@@ -99,6 +115,8 @@ def load_case_config(env: Optional[Mapping[str, str]] = None) -> DiagnoseConfig:
             x.strip() for x in (environ.get("AUTHORIZED_OPEN_IDS") or "").replace(",", " ").split() if x.strip()
         ),
         session_timeout_ms=int(environ.get("DIAGNOSE_SESSION_TIMEOUT_MS") or 180_000),
+        model_auth_header_name=header_name,
+        model_auth_header_value=header_value,
         doc_parent_token=(environ.get("SESSION_DOC_PARENT_TOKEN") or "").strip(),
         doc_sync_interval_s=_positive(environ.get("SESSION_DOC_INTERVAL_S"), 120, "SESSION_DOC_INTERVAL_S"),
         doc_lookback_days=_positive(environ.get("SESSION_DOC_LOOKBACK_DAYS"), 7, "SESSION_DOC_LOOKBACK_DAYS"),

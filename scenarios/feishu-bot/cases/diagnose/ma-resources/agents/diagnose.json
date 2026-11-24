@@ -2,9 +2,16 @@
   "name": "ada-diagnose",
   "description": "排障助手:在群聊里回答\"某个任务为什么失败 / 卡在哪 / 这一步的输入输出是什么\",只读,依据确定性诊断工具的结果作答。",
   "model": {
-    "id": "doubao-seed-2-1-lite-260915",
-    "thinking": "enabled",
-    "reasoning_effort": "low"
+    "id": "gpt-6.1-sol",
+    "provider": "bmc-llm-relay",
+    "service_tier": "default",
+    "base_url": "https://bmc-llm-relay.bluemediagroup.cn/v1/responses",
+    "protocol": "openai_responses",
+    "token_limits": {
+      "context_window": 1050000,
+      "max_input_token_length": 922000,
+      "max_output_token_length": 128000
+    }
   },
   "system_file": "diagnose.system.md",
   "tools": [

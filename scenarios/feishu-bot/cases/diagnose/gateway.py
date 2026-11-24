@@ -146,11 +146,15 @@ class DiagnoseGateway:
                 title=f"diagnose/{chat_id}",
             )
             self._store.save_session(key, session_id, self._config.agent_id)
+        # BYOK Direct:透传模型鉴权 Header(Authorization 等)。会话亲和 Header 由 ArkClient 统一追加
+        # (config.env 里设 BYOK_SESSION_AFFINITY=1 开启),这里不再手工拼。
+        extra_headers = dict(self._config.model_auth_headers) or None
         result = await self._ark.run(
             session_id,
             message.text,
             self._config.session_timeout_ms,
             custom_tool_handler=handle_tool,
+            extra_headers=extra_headers,
         )
         await self._reply(chat_id, result_to_reply(result))
 

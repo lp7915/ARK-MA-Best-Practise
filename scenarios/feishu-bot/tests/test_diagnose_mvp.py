@@ -304,6 +304,97 @@ def test_duplicate_event_is_dropped():
     assert gw.accept(_Msg()) is False
 
 
+async def test_process_forwards_byok_auth_header_only():
+    """BYOK Direct:gateway 只透传模型鉴权 Header;会话亲和 Header 由 ArkClient 统一追加(见下一条)。"""
+
+    class _Ark:
+        def __init__(self):
+            self.last_extra_headers = None
+
+        async def create_session(self, agent_id, environment_id, title=None):
+            return "sesn-new"
+
+        async def run(self, session_id, text, timeout_ms, **kw):
+            self.last_extra_headers = kw.get("extra_headers")
+            return type("R", (), {"terminal": "idle", "messages": ["ok"]})()
+
+    class _SessStore:
+        def get_session(self, key):
+            return None
+
+        def save_session(self, key, sid, aid):
+            pass
+
+    cfg = type("C", (), {
+        "authorized_open_ids": (),
+        "feishu_app_id": "cli_x",
+        "agent_id": "ag",
+        "environment_id": "en",
+        "session_timeout_ms": 180_000,
+        "model_auth_headers": {"X-User-Model-Header-Authorization": "Bearer k"},
+    })()
+    ark = _Ark()
+    replied = []
+
+    async def reply(chat_id, text):
+        replied.append(text)
+
+    gw = DiagnoseGateway(cfg, _SessStore(), ark, reply, _Loop(), None)
+    await gw._process(_Msg())
+    assert ark.last_extra_headers == {"X-User-Model-Header-Authorization": "Bearer k"}
+    assert replied == ["ok"]
+
+
+async def test_diagnose_requests_carry_affinity_header_when_enabled():
+    """排障 Bot 经真实 ArkClient 发出的请求:开启 BYOK_SESSION_AFFINITY 后带 ma-<session_id>,默认不带。"""
+    import httpx
+    import respx
+
+    from arkagent.ark import ArkClient
+
+    base = "https://ark.example/api/v3"
+    for enabled, expected in [(True, "ma-sesn-new"), (False, None)]:
+        with respx.mock:
+            respx.get(f"{base}/sessions/sesn-new/events/stream").mock(
+                return_value=httpx.Response(
+                    200,
+                    text=': ready\n\ndata: {"type":"agent.message","content":[{"type":"text","text":"ok"}]}\n\n'
+                    'data: {"type":"session.status_idle"}\n\n',
+                    headers={"Content-Type": "text/event-stream"},
+                )
+            )
+            route = respx.post(f"{base}/sessions/sesn-new/events").mock(return_value=httpx.Response(200, json={"data": []}))
+            ark = ArkClient("k", base, session_affinity=enabled)
+
+            async def _create(agent_id, environment_id, title=None):
+                return "sesn-new"
+
+            ark.create_session = _create
+
+            class _SessStore:
+                def get_session(self, key):
+                    return None
+
+                def save_session(self, key, sid, aid):
+                    pass
+
+            cfg = type("C", (), {
+                "authorized_open_ids": (), "feishu_app_id": "cli_x", "agent_id": "ag", "environment_id": "en",
+                "session_timeout_ms": 5_000,
+                "model_auth_headers": {"X-User-Model-Header-Authorization": "Bearer k"},
+            })()
+
+            async def reply(chat_id, text):
+                pass
+
+            gw = DiagnoseGateway(cfg, _SessStore(), ark, reply, _Loop(), None)
+            await gw._process(_Msg())
+            await ark.aclose()
+            sent = route.calls.last.request.headers
+            assert sent["X-User-Model-Header-Authorization"] == "Bearer k"
+            assert sent.get("X-User-Model-Header-X-Partner-Session-Id") == expected
+
+
 # ---- 私聊:只能看自己名下、发生在私聊里的任务(按租户级 user_id) -------------------
 def make_topicx(tmp_path, rows, doc_lookup=None):
     ctl_db, job_db = tmp_path / "c.db", tmp_path / "t6.db"
@@ -568,6 +659,37 @@ def test_config_accepts_same_filename_in_different_dirs(tmp_path):
         ADA_PM_GATEWAY_DB_PATH=str(tmp_path / "b" / "gateway.db"),
     ))
     assert sorted(cfg.db_paths) == ["ada-pm", "analyst"]   # 文件名相同但不是同一个库,放行
+
+
+def test_config_byok_auth_headers_off_by_default(tmp_path):
+    from diagnose.config import load_case_config
+
+    db = tmp_path / "t.db"
+    db.write_text("")
+    cfg = load_case_config(_cfg_env(tmp_path, TOPIC6_PIPELINE_DB_PATH=str(db)))
+    assert cfg.model_auth_headers == {}
+
+
+def test_config_byok_auth_headers_merges_name_and_value(tmp_path):
+    from diagnose.config import load_case_config
+
+    db = tmp_path / "t.db"
+    db.write_text("")
+    env = _cfg_env(tmp_path, TOPIC6_PIPELINE_DB_PATH=str(db))
+    env.update({"BYOK_MODEL_AUTH_HEADER_NAME": "Authorization", "BYOK_MODEL_AUTH_HEADER_VALUE": "Bearer x"})
+    assert load_case_config(env).model_auth_headers == {"X-User-Model-Header-Authorization": "Bearer x"}
+
+
+@pytest.mark.parametrize("name,value", [("Authorization", ""), ("", "Bearer x")])
+def test_config_byok_requires_both_name_and_value(tmp_path, name, value):
+    from diagnose.config import load_case_config
+
+    db = tmp_path / "t.db"
+    db.write_text("")
+    env = _cfg_env(tmp_path, TOPIC6_PIPELINE_DB_PATH=str(db))
+    env.update({"BYOK_MODEL_AUTH_HEADER_NAME": name, "BYOK_MODEL_AUTH_HEADER_VALUE": value})
+    with pytest.raises(RuntimeError, match="必须同时填写"):
+        load_case_config(env)
 
 
 # ---- 文档同步的接入 --------------------------------------------------------------
