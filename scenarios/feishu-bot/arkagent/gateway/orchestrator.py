@@ -82,6 +82,7 @@ class Gateway:
         scope_output_by_user_topic: bool = False,
         pilot_reporter: Optional[PilotReporter] = None,
         download_resource: Optional[Downloader] = None,
+        after_turn: Optional[Callable[[str, str], Awaitable[None]]] = None,
     ) -> None:
         # 飞书附件下载函数(FeishuSender.download_resource);None 表示该 case 不支持附件,带附件的消息按原行为忽略。
         self._download_resource = download_resource
@@ -97,6 +98,9 @@ class Gateway:
         self._role = role_manager
         self._memory = memory_manager
         self._before_create_session = before_create_session
+        # 每轮结束后的可选钩子 (session_id, user_open_id):用于把该 session 的执行日志落成文档等。
+        # 钩子的任何异常都不得影响本轮回复,见 _after_turn。
+        self._after_turn = after_turn
         self._loop = loop
         self._queue = KeyedQueue()
         # BYOK Direct 模式：按请求动态附加的模型鉴权 Header；未配置时为 None（原豆包模式）。
@@ -295,6 +299,17 @@ class Gateway:
             await self._reply(message.chat_id, result_to_reply(result))
         sw.mark("gateway.total", user=message.user_open_id, first=first_message)
         await self._report_observability(session_id, message.user_open_id)
+        await self._run_after_turn(session_id, message.user_open_id)
+
+    async def _run_after_turn(self, session_id: str, user_open_id: str) -> None:
+        if self._after_turn is None:
+            return
+        try:
+            await self._after_turn(session_id, user_open_id)
+        except Exception:  # noqa: BLE001 - 旁路能力失败不能让用户收到\"执行失败\"
+            logging.getLogger("arkagent.gateway").warning(
+                "after_turn 钩子失败 session=%s", session_id, exc_info=True
+            )
 
     async def _report_observability(self, session_id: str, user_open_id: str) -> None:
         """A′ 观测上报：旁路，任何失败都只记日志，不影响用户拿到的回复。"""

@@ -129,6 +129,9 @@ def _run(args: list[str] | None = None) -> None:
 
         thread = threading.Thread(target=loop.run_forever, name="gateway-loop", daemon=True)
         thread.start()
+        start_background = getattr(gateway, "start_background", None)
+        if callable(start_background):
+            start_background()  # 后台定时任务(如排障 Bot 的文档同步);必须在事件循环线程启动之后
         recover_active_jobs = getattr(gateway, "recover_active_jobs", None)
         if callable(recover_active_jobs):
             # topic6 在 Gateway 重启后从 MA 历史事件恢复 SSE / HC 卡片；不能阻塞
@@ -140,6 +143,9 @@ def _run(args: list[str] | None = None) -> None:
         print(f"- 环境变量文件:{case_paths.config_path}")
         print(f"- 日志文件:{log_path}")
         print(f"- 锁文件:{lock_path}(pid={os.getpid()};按 App ID 分粒度)")
+        from .preflight import run_preflight
+
+        run_preflight(sender, config, config.feishu_app_id)
         print("正在连接飞书 WebSocket;请在该 Bot 会话中发送消息。")
         start_feishu_gateway(config.feishu_app_id, config.feishu_app_secret, gateway)
 

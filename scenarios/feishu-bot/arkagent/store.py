@@ -102,6 +102,10 @@ class GatewayStore:
             self._db.execute("ALTER TABLE conversations ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''")
         if "created_at" not in cols:
             self._db.execute("ALTER TABLE conversations ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
+        # 归档表同样要补 chat_type:排障 Bot 靠它区分归档会话是私聊还是群聊(升级前创建的老表没有这一列)。
+        hist_cols = {r[1] for r in self._db.execute("PRAGMA table_info(session_history)").fetchall()}
+        if "chat_type" not in hist_cols:
+            self._db.execute("ALTER TABLE session_history ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''")
         self._db.commit()
 
     # ---- conversations ----
